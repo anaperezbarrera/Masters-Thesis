@@ -11,6 +11,7 @@ body {
 text-align: justify}
 </style>
 ```
+
 ```{r setup, include=FALSE}
 knitr::opts_knit$set(root.dir = "C:/Users/LG/Desktop/TFM/FINAL-COUNTRY-DATA", echo=TRUE, warning=FALSE,message=FALSE)
 ```
@@ -582,18 +583,17 @@ merged_data_subset <- merged_data_subset |> relocate(job,COUNTRY, .after = isco)
 # Calculate the total average change per occupation
 total_change_df <- merged_data_subset %>%
   group_by(job,isco) %>%
-  summarise(avg_change = weighted.mean(change, weight = COUNTRY)) 
+  summarise(avg_change = weighted.mean(change, weight = COUNTRY)*100) 
 
 # Calculate the yearly average change per occupation
 year_change_df<- merged_data_subset |> 
   group_by(YEAR,job,isco) |> 
-  summarise(avg_year = weighted.mean(change, weight=COUNTRY), 
-            avg_isco = weighted.mean(ISCOPROP, weight=COUNTRY))
+  summarise(avg_year = weighted.mean(change, weight=COUNTRY)*100)
 
 # Calculate the country average change per occupation
 country_change_df <- merged_data_subset %>%
   group_by(COUNTRY,job,isco) %>%
-  summarise(avg_cntry = weighted.mean(change, weight = COUNTRY)) 
+  summarise(avg_cntry = mean(change)*100) 
 
 # Perform the left join with the main dataset
 merged_data_subset <- left_join(merged_data_subset, total_change_df, by = c("job","isco")) 
@@ -605,18 +605,28 @@ merged_data_subset <- left_join(merged_data_subset, country_change_df, by = c("j
 
 Let's establish a common `custom_theme` to ensure a clean and consistent theme along the analysis.
 
-### Cross-country differences in average employment change (2012-2021): Information and communications technology professionals
+### Cross-country differences in average employment change (2012-2021): ICT professionals vs Manufacturing
 
 ```{r}
 library(stringr)
 tec <- merged_data_subset |> 
-  filter(str_detect(job, "Information and communications technology professionals")) |> 
+  filter(str_detect(job, "technology")) |> 
+  select(COUNTRY,job,avg_cntry) |> 
+  distinct()
+
+manu <- merged_data_subset |> 
+  filter(str_detect(job,"manufacturing")) |> 
   select(COUNTRY,job,avg_cntry) |> 
   distinct()
 ```
 
 ```{r}
 library(maps)
+xmin <- -10
+xmax <- 40
+ymin <- 35
+ymax <- 70
+
 #We need the country ID to merge the information into a world map dataset
 europe<-giscoR::gisco_get_countries(resolution = "60",
     region="Europe") |> 
@@ -626,17 +636,10 @@ left_join(tec, by = c("CNTR_ID" = "COUNTRY")) |>
 
 map1<- ggplot() +
   geom_sf(data = europe, aes(fill = avg_cntry)) +
-  scale_fill_gradient2(low = "#006d77", mid = "white", high = "#b70000", name = "Average Change",midpoint = 0) +
-  theme_void()
-```
-
-### Cross-country differences in average employment change (2012-2021): Labourers in mining, construction, manufacturing and transportation.
-
-```{r}
-manu <- merged_data_subset |> 
-  filter(str_detect(job, "manufacturing")) |> 
-  select(COUNTRY,job,avg_cntry) |> 
-  distinct()
+  scale_fill_gradient2(low = "darkgreen", mid = "white", high = "#b70000", name = "Average Change",midpoint = 0) +
+   theme_void() + theme(
+    legend.position = "none") + labs(title = "")+
+ coord_sf(xlim = c(xmin, xmax), ylim = c(ymin, ymax), expand = FALSE) 
 ```
 
 ```{r}
@@ -648,120 +651,105 @@ left_join(manu, by = c("CNTR_ID" = "COUNTRY")) |>
 
 map2<- ggplot() +
   geom_sf(data= europe2, aes(fill = avg_cntry)) +
- scale_fill_gradient2(low = "#006d76", mid = "white", high = "#b70000", name = "Average Change", midpoint = 0) + 
-  theme_void() 
+ scale_fill_gradient2(low = "darkgreen", mid = "white", high = "#b70000", name = "Average Change", midpoint = 0) + 
+  theme_void() + theme(
+    legend.position = "right", legend.title = element_blank(), legend.key.height =   unit(1, "cm"))+ labs(title="")+
+ coord_sf(xlim = c(xmin, xmax), ylim = c(ymin, ymax), expand = FALSE)
 ```
 
 ```{r}
 # Arrange together
-ggarrange(map1,map2, ncol =2, nrow=1, legend = "bottom") 
+library(sf)
+library(patchwork)
+
+ map1 + map2
 ```
 
-### Occupational trends in the employment structure
-
-**Changes in employment between routine and non-routine occupations over time.**
+### Cross-country differences in average employment change (2012-2021) - GDP and Gini
 
 ```{r}
-agg_trend <- merged_data_subset |> 
-   mutate(sector = ifelse(routine > 0.5, "Routine", "Non-routine ")) |> 
-   group_by(YEAR, sector) %>%
-  summarise(agg_avg_year = weighted.mean(avg_year, weight=COUNTRY)*100)  
+##Gini index
+library(WDI) # API World Bank
+var = WDI(indicator='SI.POV.GINI', country="all", extra=TRUE, latest=5) %>%
+  mutate(Gini=SI.POV.GINI, COUNTRY=iso2c) %>% 
+  group_by(COUNTRY) %>% 
+  filter(year==2019) %>% 
+  dplyr::select(COUNTRY, Gini) 
 
-ggplot(agg_trend, aes(x = YEAR, y = agg_avg_year,
-                  color = as.factor(sector), group =sector)) +
-  geom_line(size = 1) +
-  geom_point(size = 2) +
-  lims(y = c(-11,10)) +
-  labs(title = "",
-       subtitle = "Average change in employment",
-       x = "",
-       y = "" , 
-       color = "Sector") +
-  scale_fill_manual() + 
- 
-  geom_hline(yintercept = 0, linetype = "dashed", color = "gray") +
-  theme_classic() +
-  theme(
-    plot.title = element_text(hjust = 0, face = "bold"),
-    plot.subtitle = element_text(hjust = 0),
-    legend.position = "bottom",
-    legend.title = element_blank(),
-    legend.text = element_text(size = 10),
-    axis.text = element_text(size = 10)
-  )
+tec = merge(tec, var, by="COUNTRY", all.x = TRUE)
+manu = merge(manu, var, by="COUNTRY", all.x = TRUE)
+
+
+## GDP per capita (constant 2015 US$)
+var = WDI(indicator='NY.GDP.PCAP.KD', country="all", extra=TRUE, latest=5) %>%
+  mutate(GDP=NY.GDP.PCAP.KD, COUNTRY=iso2c) %>% 
+  group_by(COUNTRY) %>% 
+  filter(year=="2019") |> 
+ dplyr::select(COUNTRY, GDP) 
+
+tec = merge(tec, var, by="COUNTRY", all.x = TRUE)
+manu = merge(manu, var, by="COUNTRY", all.x = TRUE)
+
 ```
 
-**Changes in employment between high and low ICT use occupations over time.**
 
 ```{r}
-merged_data_subset |> 
-   mutate(sector = ifelse(ICT > 0.5, "High ICT use", "Low ICT use")) |> 
-   group_by(YEAR, sector) %>%
-  summarise(agg_avg_year = weighted.mean(avg_year, weight=COUNTRY, na.rm = TRUE)*100) |> 
-  ggplot(aes(x = YEAR, y = agg_avg_year,
-                  color = factor(sector), group = sector)) +
-  geom_line(size = 1) +
-  geom_point(size = 2) +
-  lims(y = c(-12,10)) +
-  labs(title = "",
-       subtitle = "Average change in employment",
-       x = "",
-       y = "") +
-  scale_fill_manual()+
-   geom_hline(yintercept = 0, linetype = "dashed", color = "gray") +
-  theme_classic() +
-  theme(
-    plot.title = element_text(hjust = 0, face = "bold"),
-    plot.subtitle = element_text(hjust = 0),
-    legend.position = "bottom",
-    legend.title = element_blank(),
-    legend.text = element_text(size = 10),
-    axis.text = element_text(size = 10)
-  )
+library(scales)
+tec1<-ggplot(tec, aes(x = Gini, y = avg_cntry, color=Gini,label=COUNTRY)) +
+  geom_point(aes(size = GDP), alpha = 0.6) +
+  scale_size(range = c(0,20)) + 
+  geom_text(vjust = -1, hjust = 0.5, size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +  
+  scale_size(range = c(1,5)) + 
+  scale_color_gradient(low = "darkgreen", high = "red") +
+  scale_y_continuous(labels = function(x) percent(x / 100),  limits = c(-15, 25)) +
+  labs(x = "", y = "", 
+       title = "",
+       subtitle = "") +
+  theme_minimal() + guides(color = "none", size = "none")
+
+manu1<-ggplot(manu, aes(x = Gini, y = avg_cntry, color=Gini,label=COUNTRY)) +
+  geom_point(aes(size = GDP), alpha = 0.6) +
+  scale_size(range = c(0,20)) + 
+  geom_text(vjust = -1, hjust = 0.5, size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") + 
+  scale_size(range = c(1,5)) + 
+  scale_color_gradient(low = "darkgreen", high = "red") +
+ scale_y_continuous(labels = function(x) percent(x / 100), limits = c(-15, 25)) +
+  labs(x = "", y = "", 
+       title = "",
+       subtitle = "") +
+  theme_minimal()
+
+tec1 + manu1
 ```
 
-### Exploratory analysis of LFS variables
 
-Average Ratio of Online Work by Occupation (2006-2021), weighted by country
+### Occupational trends in the employment structure 
 
 ```{r}
-# Calculate weighted average ratio of online-work per occupation
- weighted_ratio <-merged_data %>%
-  group_by(job,isco) %>%
-  summarise(avg_ratio= weighted.mean(ONRATIO, weight = COUNTRY)) |> 
-  arrange(desc(avg_ratio)) |> 
-  na.omit()
+ict_sector <- iscoag |> 
+   mutate(sector = ifelse(ICT > 0.5, "High-ICT", "Low-ICT")) |> 
+  select(isco,sector) |> 
+  filter(sector=="High-ICT") |> 
+  left_join(isco_df, by="isco") |> 
+  dplyr::select(-sector) |> 
+  left_join(year_change_df, by=c("isco", "job")) |> 
+  group_by(YEAR) %>%
+  mutate(agg_year = mean(avg_year))
 
-# Visualization
-ggplot(weighted_ratio, aes(x = reorder(job, avg_ratio), y = avg_ratio)) +
-  geom_bar(stat = "identity") +
-  labs(title = "Average Ratio of Online Work by Occupation (2006-2021)",
-       x = "", y = "", caption = "Note: The presented averages are weighted by country. Cross-country averages are taken over the 16 countries included in the analysis.") +  coord_flip() + custom_theme() 
+mach_sector <- iscoag |> 
+   mutate(sector = ifelse(physical > 0.5, "Machines", "No-machines")) |> 
+  select(isco,sector) |> 
+  filter(sector=="Machines") |> 
+  left_join(isco_df, by="isco") |> 
+  dplyr::select(-sector) |> 
+  left_join(year_change_df, by=c("isco", "job")) |> 
+  group_by(YEAR) %>%
+  mutate(agg_year = mean(avg_year))
+
 ```
 
-Average change in employment level across countries by occupation (2006-2021), weighted by country.
-
-```{r}
-weighted_change <- merged_data %>% group_by(job,isco) %>%summarise(avg_change = weighted.mean(change, weight = COUNTRY))
-
-# Sort occupations by change (descending for most lost employment)
-top_losers <- head(weighted_change %>% arrange(avg_change),10)
-top_losers
-top_gainers <- head(weighted_change %>% arrange(desc(avg_change)),10)
-top_gainers
-```
-
-```{r}
-my_colors <- c("Gained Employment" = "#FFF176", "Lost Employment" = "#C4BDF3")
-# Visualization
-ggplot(weighted_change, aes(x = reorder(job, avg_change), y = avg_change, fill = factor(avg_change < 0, labels = c("Gained Employment", "Lost Employment")))) +
-  geom_bar(stat = "identity") +
-  scale_fill_manual(values = my_colors) +
-  labs(title = "Average change in employment level across countries by occupation (2006-2021)",
-       x = "", y = "", caption = "Note: The presented averages are weighted by country. Cross-country averages are taken over the 16 countries included in the analysis.") + 
- custom_theme() +
-  coord_flip() 
-```
 
 ### Exploratory analysis of JRC variables
 
@@ -803,31 +791,14 @@ c6<-ggplot(isco2d, aes(x = ICT, y = intellectual)) +geom_point(size=0.3, color="
 
 ```{r}
 # Arrange together
-grid <- ggarrange(c1,c2,c3,c4,c5,c6,
+ggarrange(c1,c2,c3,c4,c5,c6,
           ncol =3, nrow=2) 
-grid + ggtitle("") + custom_theme() 
 ```
 
-```{r, eval=FALSE}
-save_jpg <- function(plot, filename = "", width = 24, height = 12, unit = "cm", dpi = 300) {
-  ggsave(
-    plot = plot,
-    filename = filename,
-    device = 'jpg',
-    width = width,
-    height = height,
-    unit = unit,
-    dpi = dpi
-  )
-}
-
-save_jpg(grid, filename = "corr.jpg")
-```
 
 **Differences in occupational exposure to Basic ICT'S**
 
 ```{r}
-library(ggrepel)
 ggplot(merged_data_subset, aes(x = ICTbasic, y = avg_change, 
                                color = ICTbasic,label=job)) +
   geom_point(size = 1) +  
@@ -835,37 +806,60 @@ ggplot(merged_data_subset, aes(x = ICTbasic, y = avg_change,
   scale_color_gradient(low = "darkgreen", high = "red") + theme_minimal()
 ```
 
-**Heatmap**
+```{r}
+ggplot(merged_data_subset, aes(x = machines, y = avg_change, 
+                               color = machines,label=job)) +
+  geom_point(size = 1) +  
+ geom_text(vjust = -1, hjust = 0.5, size = 3) +
+  scale_color_gradient(low = "darkgreen", high = "red") + theme_minimal()
+```
 
-```{r, eval=FALSE}
-prop_data <- merged_data|> 
-  select(job,YEAR,avg_isco) |> 
-  distinct()
 
-# Pivot the data wider to create the matrix
-hmprop <- prop_data %>%
-    pivot_wider(names_from = YEAR, values_from = avg_isco) 
-  
-  # Arrange based on the specified year (e.g., 2021)
-  hmprop <- hmprop %>%
-    arrange(!!sym("2021")) 
-  
-  # Assign the rownames after arranging the heatmap 
-  rownames <- hmprop$job
+```{r}
+iscolong <-iscoag |> 
+    pivot_longer(cols = starts_with(c("physical", "intellectual", "social", "machines", "ICT", "ICTadvanced")),
+               names_to = "characteristic",
+               values_to = "values") |> 
+  left_join(isco_df, by="isco") |> 
+  left_join(total_change_df, by = c("job","isco"))
+
+#iscolong <- iscolong|> 
+ # filter(str_detect(job, regex("technology|engineer|worker", ignore_case = TRUE)))
+
+iscolong <- iscolong %>%
+  mutate(job = fct_reorder(job, avg_change))
 ```
 
 ```{r}
-# Plot the heatmap
-  heatmap(as.matrix(hmprop[, -c(1)]), 
-          Rowv = NA, 
-          Colv = NA, 
-          scale = "column", 
-          main = paste("Yearly average proportion of employees by occupation"),
-          xlab = "",
-          ylab = "",
-          cexCol = 1, 
-          labRow = rownames)
+puntos <- ggplot(iscolong, aes(x = characteristic, 
+                               y = job, size = values)) +
+  geom_point(alpha = 0.6) +
+  scale_size_continuous(range = c(0, 6), name = "score") + 
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "",
+       x = "",
+       y = "")
+
+# Luego, crea el gráfico de barras para avg_change
+barras <- ggplot(iscolong, aes(x = job, y = avg_change)) +
+  geom_col() +
+  coord_flip() +
+  theme_minimal() +
+   lims(y = c(-20,20)) +
+  theme(axis.title.y = element_blank(), 
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank()) +
+  labs(x = "avg_change",
+       y = "")
+
+# Combina ambos gráficos usando gridExtra
+library(gridExtra)
+grid.arrange(puntos, barras, ncol = 2, widths = c(4, 1))
 ```
+
+
+
 
 ## 4. PREPARING THE DATA FOR PREDICTION
 
@@ -1202,7 +1196,7 @@ merged_data_subset$YEAR<- as.factor(merged_data_subset$YEAR)
 
 ```{r fig.height=20, fig.width=20}
 ggplot(merged_data_subset,
-       mapping = aes(x = YEAR, y = avg_year, color = COUNTRY)) +
+       mapping = aes(x = YEAR, y = change, color = COUNTRY)) +
   geom_point() +
   geom_smooth(method = "loess", se = F) +
   facet_wrap(~ job, ncol = 5) +
