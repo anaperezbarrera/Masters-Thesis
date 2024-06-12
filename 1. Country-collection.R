@@ -66,13 +66,13 @@ process_country <- function(country_code, folder_path) {
 folder_path <- "C:/Users/LG/Desktop/TFM/LFS - microdata"
 
 # List of country codes
-country_codes <- c("BE-Belgium","DE-Germany","DK-Denmark","EL-Greece","ES-Spain","FI-Finland",
-                   "FR-France","HU-Hungary","IT-Italy","LT-Lithuania","NL-Netherlands","NO-Norway",
-                   "PL-Poland","PT-Portugal","RO-Romania","SE-Sweden")
+country_codes <- c("BE-Belgium","DE-Germany","DK-Denmark","EL-Greece",
+                   "ES-Spain","FI-Finland", "FR-France","IT-Italy",
+                   "NL-Netherlands","NO-Norway","PT-Portugal","SE-Sweden"
+                   "AT-Austria", "IE-Ireland", "LU-Luxembourg")
 
 # Process each country
 for (country_code in country_codes) {
   process_country(country_code, folder_path)
 }
-
 
