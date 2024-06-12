@@ -36,46 +36,8 @@ library(tidyverse)
 library(tidyr)
 ```
 
-## 1. JOINT RESEARCH CENTER DATA PRE-PROCESSING
 
-```{r, eval=FALSE}
-tasks <- read_delim("tasks eu isco2d nace2d EU15.csv", 
-                     delim = "\t", escape_double = FALSE, 
-                     trim_ws = TRUE)
-
-# Save vector of unique occupations before removing them
-occupation <- unique(tasks$isco)
-
-isco_df <- data.frame(
-  isco = as.numeric(gsub("\\..*", "", occupation)),
-  job = gsub("^\\d+\\.\\s*", "", occupation)
-)
-
-# Save isco_df for later
-#write.csv(isco_df, "isco_df.csv", row.names = F)
-```
-
-### NA imputation
-
-```{r, eval=FALSE}
-# Remove text from ISCO column
-tasks$isco <- gsub("[^0-9]+", "", tasks$isco)
-# Removing nace and pop variables
-tasks<- tasks |>  dplyr::select (-nace)
-
-#NA imputation with MICE method
-set.seed(123)
-m = 5 
-mice_mod <- mice(tasks, m=m, method='rf')
-isco2d <- complete(mice_mod, action=m)
-
-sapply(isco2d, function(x) sum(is.na(x))*100/nrow(isco2d))
-
-# Save isco2d for later
- write.csv(isco2d, "isco2d.csv", row.names = F)
-```
-
-## 2. LABOR FORCE SURVEY DATA PRE-PROCESSING
+## 1. LABOR FORCE SURVEY DATA PRE-PROCESSING
 
 Fuction created to perform the ISCO transformation from 3 to 2 digit
 
@@ -137,52 +99,50 @@ for (file in csv_files) {
 }
 ```
 
-**Merging with the name of the occupation**
-
-The `isco_df` dataset contains the names of the occupations matching the isco variable, extracted from the **Joint Research Center**.
+##  2. JOINT RESEARCH CENTER DATA PRE-PROCESSING
 
 ```{r, eval=FALSE}
-merge_iscodf <- function(file_path, isco_file) {
-  # Read the CSV file
-  data <- read_csv(file_path)
-  # Read the isco dataframe
-  isco_df <- read_csv(isco_file)
-  
-  # Perform the left join
-  merged_data <- left_join(data, isco_df, by = "isco")
-  # Extract file name
-  file_name <- basename(file_path)
-  
-  # Save the merged dataframe back to CSV file with the same name
-  write_csv(merged_data, file_path)
-  
-}
+tasks <- read_delim("tasks eu isco2d nace2d EU15.csv", 
+                     delim = "\t", escape_double = FALSE, 
+                     trim_ws = TRUE)
 
-# Merge and save each dataset:
-merge_iscodf("BE-Belgium_final.csv", "isco_df.csv")
-merge_iscodf("DE-Germany_final.csv", "isco_df.csv")
-merge_iscodf("DK-Denmark_final.csv", "isco_df.csv")
-merge_iscodf("EL-Greece_final.csv", "isco_df.csv")
-merge_iscodf("ES-Spain_final.csv", "isco_df.csv")
-merge_iscodf("FI-Finland_final.csv", "isco_df.csv")
-merge_iscodf("FR-France_final.csv", "isco_df.csv")
-merge_iscodf("HU-Hungary_final.csv", "isco_df.csv")
-merge_iscodf("IT-Italy_final.csv", "isco_df.csv")
-merge_iscodf("LT-Lithuania_final.csv", "isco_df.csv")
-merge_iscodf("NL-Netherlands_final.csv", "isco_df.csv")
-merge_iscodf("NO-Norway_final.csv", "isco_df.csv")
-merge_iscodf("PL-Poland_final.csv", "isco_df.csv")
-merge_iscodf("PT-Portugal_final.csv", "isco_df.csv")
-merge_iscodf("RO-Romania_final.csv", "isco_df.csv")
-merge_iscodf("SE-Sweden_final.csv", "isco_df.csv")
+# Save vector of unique occupations before removing them
+occupation <- unique(tasks$isco)
+
+isco_df <- data.frame(
+  isco = as.numeric(gsub("\\..*", "", occupation)),
+  job = gsub("^\\d+\\.\\s*", "", occupation)
+)
+
+# Save isco_df for later
+# write.csv(isco_df, "isco_df.csv", row.names = F)
 ```
 
-### **Note that** you will have to read the file from here
+### NA imputation
+
+```{r, eval=FALSE}
+# Remove text from ISCO column
+tasks$isco <- gsub("[^0-9]+", "", tasks$isco)
+# Removing nace and pop variables
+tasks<- tasks |>  dplyr::select (-nace,-pop)
+
+#NA imputation with MICE method
+set.seed(123)
+m = 5 
+mice_mod <- mice(tasks, m=m, method='rf')
+isco2d <- complete(mice_mod, action=m)
+
+sapply(isco2d, function(x) sum(is.na(x))*100/nrow(isco2d))
+
+# Save isco2d for later
+ write.csv(isco2d, "isco2d.csv", row.names = F)
+```
 
 **Define Country Data**
 
 ```{r}
 country_data <- list(
+  AT_Austria="AT-Austria_final.csv",
   BE_Belgium = "BE-Belgium_final.csv",
   DE_Germany = "DE-Germany_final.csv",
   DK_Denmark = "DK-Denmark_final.csv",
@@ -190,14 +150,12 @@ country_data <- list(
   ES_Spain = "ES-Spain_final.csv",
   FI_Finland = "FI-Finland_final.csv",
   FR_France = "FR-France_final.csv",
-  HU_Hungary = "HU-Hungary_final.csv",
+  IE_Ireland ="IE-Ireland_final.csv",
   IT_Italy = "IT-Italy_final.csv",
-  LT_Lithuania = "LT-Lithuania_final.csv",
+  LU_Luxembourg="LU-Luxembourg_final.csv",
   NL_Netherlands = "NL-Netherlands_final.csv",
   NO_Norway = "NO-Norway_final.csv",
-  PL_Poland = "PL-Poland_final.csv",
   PT_Portugal = "PT-Portugal_final.csv",
-  RO_Romania = "RO-Romania_final.csv",
   SE_Sweden = "SE-Sweden_final.csv"
 )
 ```
@@ -217,10 +175,10 @@ data <- data %>%
       female_count = sum(SEX == 2,  na.rm = TRUE) ) %>%
     mutate(
       total = male_count + female_count,
-      FEMRATIO = female_count / total ) %>%
+      femratio = female_count / total ) %>%
     mutate(
-      FEMRATIO = round(FEMRATIO, 4)) |> 
-    select(YEAR, isco, FEMRATIO) |> 
+      femratio = round(femratio, 4)) |> 
+    select(YEAR, isco, femratio) |> 
    left_join(data, by = c("YEAR", "isco")) |> 
     dplyr::select(-SEX)
 
@@ -246,10 +204,9 @@ online_ratio <- function(data) {
       office_count =sum(HOMEWORK ==3, na.rm = TRUE)) |> 
     mutate(
       total = online_count + both_count * 0.5 + office_count,
-      ONRATIO = (online_count + both_count * 0.5) / total) |> 
-    mutate(
-      ONRATIO = round(ONRATIO, 4)) |>
-      select(YEAR, isco, ONRATIO) |> 
+      onratio = (online_count + both_count * 0.5) / total) |> 
+    mutate(onratio = round(onratio, 4)) |>
+      select(YEAR, isco, onratio) |> 
      left_join(data, by = c("YEAR", "isco")) |> 
      dplyr::select(-HOMEWORK)
   
@@ -263,19 +220,18 @@ Create full-time/part-time ratio from 0 (part-time) to 1 (full-time).
 
 ```{r}
 ftpt_ratio <- function(data) {
-   data <- data |> 
+  data <- data |> 
     group_by(YEAR, isco) |> 
     summarise(
-      ft_count = sum(FTPT == 1,  na.rm = TRUE),
-      pt_count = sum(FTPT == 2,  na.rm = TRUE)) |> 
+      ft_count = sum(FTPT == 1, na.rm = TRUE),
+      pt_count = sum(FTPT == 2, na.rm = TRUE)) |> 
     mutate(
       total = ft_count + pt_count,
-      FTRATIO = ft_count / total) |> 
-    mutate(
-      FTRATIO = round(FTRATIO, 4)) |>
-      select(YEAR, isco, FTRATIO)|> 
+      ftratio = ft_count / total) |> 
+    mutate(ftratio = round(ftratio, 4)) |> 
+    select(YEAR, isco, ftratio) |> 
     left_join(data, by = c("YEAR", "isco")) |> 
-     dplyr::select(-FTPT)
+    dplyr::select(-FTPT)
   
   return(data)
 }
@@ -293,16 +249,15 @@ supvisor_ratio <- function(data) {
   data <- data |> 
     group_by(YEAR, isco) |> 
     summarise(
-      supvisor_yes = sum(SUPVISOR == 1,  na.rm = TRUE),
-      supvisor_no = sum(SUPVISOR == 2,  na.rm = TRUE)) |> 
+      supvisor_yes = sum(SUPVISOR == 1, na.rm = TRUE),
+      supvisor_no = sum(SUPVISOR == 2, na.rm = TRUE)) |> 
     mutate(
       total = supvisor_yes + supvisor_no,
-      SUPRATIO = supvisor_yes / total) |> 
-    mutate(SUPRATIO = 
-             round(SUPRATIO, 4)) |> 
-      select(YEAR, isco, SUPRATIO)|> 
+      supratio = supvisor_yes / total) |> 
+    mutate(supratio = round(supratio, 4)) |> 
+    select(YEAR, isco, supratio) |> 
     left_join(data, by = c("YEAR", "isco")) |> 
-     dplyr::select(-SUPVISOR)
+    dplyr::select(-SUPVISOR)
   
   return(data)
 }
@@ -330,10 +285,9 @@ extrahrs_ratio <- function(data) {
       extra_yes = sum(EXTRAHRS == 1,  na.rm = TRUE)) |> 
     mutate(
       total = extra_no + extra_yes,
-      EXTRARATIO = extra_yes / total) |> 
-    mutate(EXTRARATIO = 
-             round(EXTRARATIO, 4)) |> 
-      select(YEAR, isco, EXTRARATIO)|> 
+      extraratio = extra_yes / total) |> 
+    mutate(extraratio = round(extraratio, 4)) |> 
+      select(YEAR, isco, extraratio)|> 
     left_join(data, by = c("YEAR", "isco")) |> 
     dplyr::select(-EXTRAHRS)
   
@@ -353,10 +307,9 @@ shiftwk_ratio <- function(data) {
       shift_yes = sum(SHIFTWK == 1,  na.rm = TRUE)) |> 
     mutate(
       total = shift_no + shift_yes,
-      SHIFTRATIO = shift_yes / total) |> 
-    mutate(SHIFTRATIO = 
-             round(SHIFTRATIO, 4)) |> 
-      select(YEAR, isco, SHIFTRATIO)|> 
+      shiftratio = shift_yes / total) |> 
+    mutate(shiftratio = round(shiftratio, 4)) |> 
+      select(YEAR, isco, shiftratio)|> 
     left_join(data, by = c("YEAR", "isco")) |> 
       dplyr::select(-SHIFTWK)
   
@@ -385,10 +338,9 @@ shifts_ratio <- function(data) {
       never_count =sum(EVENWK ==3, na.rm = TRUE)) |> 
     mutate(
       total = freq_count + both_count * 0.5 + never_count,
-      EVENRATIO = (freq_count + both_count * 0.5) / total) |> 
-    mutate(
-      EVENRATIO = round(EVENRATIO, 4)) |>
-      select(YEAR, isco, EVENRATIO) |> 
+      evenratio = (freq_count + both_count * 0.5) / total) |> 
+    mutate(evenratio = round(evenratio, 4)) |>
+      select(YEAR, isco, evenratio) |> 
      left_join(data, by = c("YEAR", "isco"))
   
     data <- data %>%
@@ -399,10 +351,9 @@ shifts_ratio <- function(data) {
       never_count =sum(NIGHTWK ==3, na.rm = TRUE)) |> 
     mutate(
       total = freq_count + both_count * 0.5 + never_count,
-      NIGHTRATIO = (freq_count + both_count * 0.5) / total) |> 
-    mutate(
-      NIGHTRATIO = round(NIGHTRATIO, 4)) |>
-      select(YEAR, isco, NIGHTRATIO) |> 
+      nightratio = (freq_count + both_count * 0.5) / total) |> 
+    mutate(nightratio = round(nightratio, 4)) |>
+      select(YEAR, isco, nightratio) |> 
      left_join(data, by = c("YEAR", "isco"))
    
     data <- data %>%
@@ -413,10 +364,9 @@ shifts_ratio <- function(data) {
       never_count =sum(SATWK ==3, na.rm = TRUE)) |> 
     mutate(
       total = freq_count + both_count * 0.5 + never_count,
-      SATRATIO = (freq_count + both_count * 0.5) / total) |> 
-    mutate(
-      SATRATIO = round(SATRATIO, 4)) |>
-      select(YEAR, isco, SATRATIO) |> 
+      satratio = (freq_count + both_count * 0.5) / total) |> 
+    mutate(satratio = round(satratio, 4)) |>
+      select(YEAR, isco, satratio) |> 
      left_join(data, by = c("YEAR", "isco"))
     
     data <- data %>%
@@ -427,10 +377,9 @@ shifts_ratio <- function(data) {
       never_count =sum(SUNWK ==3, na.rm = TRUE)) |> 
     mutate(
       total = freq_count + both_count * 0.5 + never_count,
-      SUNRATIO = (freq_count + both_count * 0.5) / total) |> 
-    mutate(
-      SUNRATIO = round(SUNRATIO, 4)) |>
-      select(YEAR, isco, SUNRATIO) |> 
+      sunratio = (freq_count + both_count * 0.5) / total) |> 
+    mutate( sunratio = round(sunratio, 4)) |>
+      select(YEAR, isco, sunratio) |> 
      left_join(data, by = c("YEAR", "isco")) |> 
       dplyr::select(-EVENWK, -NIGHTWK, -SATWK, -SUNWK)
   
@@ -438,7 +387,7 @@ shifts_ratio <- function(data) {
 } 
 ```
 
-#### C. ISCOPROP - Proportion of employees by occupation and year.
+#### C. Proportion of employees by country, occupation and year.
 
 This function is used to calculate the ISCOPROP variable, that represents the proportion of employees represented in each occupation classification, out of the total nº of employees, per year.
 
@@ -446,12 +395,12 @@ This function is used to calculate the ISCOPROP variable, that represents the pr
 # Function to calculate proportions by occupation and year
 calculate_iscoprop <- function(data) {
   prop_data <- data |> 
-    group_by(YEAR, job, isco) |> 
+    group_by(YEAR,isco) |> 
     summarise(employed = sum(EMPSTAT == 1)) |> 
     ungroup() |> 
     group_by(YEAR) |> 
     mutate(total = sum(employed)) |> 
-    mutate(ISCOPROP = (employed / total) * 100) |> 
+    mutate(iscoprop = (employed / total) * 100) |> 
     dplyr::select(-employed, -total) 
   
   return(prop_data)
@@ -459,36 +408,12 @@ calculate_iscoprop <- function(data) {
 
 # Add ISCOPROP in the main dataframe
 add_iscoprop <- function(data) {
-  data <- data |> left_join(prop_data,by = c("YEAR", "isco", "job"))
+  data <- data |> left_join(prop_data,by = c("YEAR", "isco"))
   return(data)
 }
 ```
 
-#### D. EMPRATE - Yearly change in employment 2006-2021
 
-**The variable EMPSTAT** first distinguishes whether respondents between 15 and 89 years of age are employed or not; for respondents outside this age band, EMPSTAT is ‘not applicable’. If EMPSTAT is ‘1’ (employed), ILOSTAT is ‘1’ (employed) as well. EMPSTAT cases ‘2’ (not employed) are then further derived to ILOSTAT ‘2’ (unemployed) or ‘3’ (outside the labour force), while persons aged below 15 and above 89 are considered as outside the labour force by definition.
-
-**The new variable change** is calculated using the ISCOPROP variable (proportion of employees by year and occupation) to measure the yearly change (loss/gain) in employment between 2006-2021.
-
-```{r}
-# Function to calculate the change in employment per year and occupation
-calculate_emprate <- function(data) {
-  rate_data <- prop_data %>%
-    group_by(job) %>%
-    arrange(job, YEAR) %>%
-    mutate(change = ISCOPROP - lag(ISCOPROP),
-           change = ifelse(is.na(change), 0, change)) %>%
-    ungroup() %>%
-    
-  return(rate_data)
-}
-
-# Add 'change' in the main dataframe
-add_emprate <- function(data) {
-  data <- data |> left_join(rate_data,by = c("YEAR", "isco", "job", "ISCOPROP"))
-  return(data)
-}
-```
 
 **Let's apply all the functions**
 
@@ -505,8 +430,6 @@ for (country in names(country_data)) {
   cntdata <- shifts_ratio(cntdata)
   prop_data <- calculate_iscoprop(cntdata)
   cntdata <- add_iscoprop(cntdata)
-  rate_data <- calculate_emprate(cntdata)
-  cntdata <- add_emprate(cntdata)
   
   assign(country, cntdata)
   
@@ -551,6 +474,26 @@ merged_data$isco[merged_data$isco %in% c(10,20,30,40,50,60,70,80,90,0)] <- NA
 merged_data <- merged_data[!is.na(merged_data$isco), ]
 ```
 
+#### D. Annual employment rate variation (2006-2021)
+
+**The variable EMPSTAT** first distinguishes whether respondents between 15 and 89 years of age are employed or not; for respondents outside this age band, EMPSTAT is ‘not applicable’. If EMPSTAT is ‘1’ (employed), ILOSTAT is ‘1’ (employed) as well. EMPSTAT cases ‘2’ (not employed) are then further derived to ILOSTAT ‘2’ (unemployed) or ‘3’ (outside the labour force), while persons aged below 15 and above 89 are considered as outside the labour force by definition.
+
+**The new variable :employment rate variation** is calculated using the iscoprop variable (proportion of employees by year and occupation) to measure the yearly variation (loss/gain)between 2006-2021.
+
+```{r}
+merged_data <- merged_data %>%
+  group_by(COUNTRY, isco) %>%
+  mutate(empchange = c(0, diff(iscoprop))) %>%
+  ungroup()
+```
+
+
+The `isco_df` dataset contains the names of the occupations matching the isco variable, extracted from the **Joint Research Center**.
+```{r}
+isco_df<- read_csv("isco_df.csv")
+merged_data<- left_join(merged_data,isco_df, by="isco")
+```
+
 Load the pre-processed `isco2d` data and create a mean score for each unique occupation.
 
 ```{r}
@@ -562,7 +505,7 @@ iscoag <-isco2d |>
     mutate_all(round, digits = 4) 
 ```
 
-Merge both dataframes to include the other independent variables we will use for our analysis (only 2012-2021) EXPLAIN WHY
+Create the main dataset (2012-2021). Merge both dataframes to include the other predictors we will use for our analysis EXPLAIN WHY
 
 ```{r}
 # Subset by YEAR (2012-2021)
@@ -577,13 +520,13 @@ merged_data <- merged_data |> relocate(job,COUNTRY, .after = isco)
 merged_data_subset <- merged_data_subset |> relocate(job,COUNTRY, .after = isco)
 ```
 
-#### E. Change in employment levels (2012-2021)
+#### E. Aggregated employment rate variation (2012-2021)
 
 ```{r}
 # Calculate the total average change per occupation
 total_change_df <- merged_data_subset %>%
   group_by(job,isco) %>%
-  summarise(avg_change = weighted.mean(change, weight = COUNTRY)*100) 
+  summarise(avg_change = weighted.mean(empchange, weight = COUNTRY)*100) 
 
 # Calculate the yearly average change per occupation
 year_change_df<- merged_data_subset |> 
@@ -806,18 +749,10 @@ ggplot(merged_data_subset, aes(x = ICTbasic, y = avg_change,
   scale_color_gradient(low = "darkgreen", high = "red") + theme_minimal()
 ```
 
-```{r}
-ggplot(merged_data_subset, aes(x = machines, y = avg_change, 
-                               color = machines,label=job)) +
-  geom_point(size = 1) +  
- geom_text(vjust = -1, hjust = 0.5, size = 3) +
-  scale_color_gradient(low = "darkgreen", high = "red") + theme_minimal()
-```
-
 
 ```{r}
 iscolong <-iscoag |> 
-    pivot_longer(cols = starts_with(c("physical", "intellectual", "social", "machines", "ICT", "ICTadvanced")),
+    pivot_longer(cols = starts_with(c("ICTadvanced")),
                names_to = "characteristic",
                values_to = "values") |> 
   left_join(isco_df, by="isco") |> 
@@ -832,7 +767,7 @@ iscolong <- iscolong %>%
 
 ```{r}
 puntos <- ggplot(iscolong, aes(x = characteristic, 
-                               y = job, size = values)) +
+                               y = job, size = values, color=values)) +
   geom_point(alpha = 0.6) +
   scale_size_continuous(range = c(0, 6), name = "score") + 
   theme_minimal() +
@@ -858,16 +793,13 @@ library(gridExtra)
 grid.arrange(puntos, barras, ncol = 2, widths = c(4, 1))
 ```
 
-
-
-
 ## 4. PREPARING THE DATA FOR PREDICTION
 
 ### 4.1. NA imputation
 
 ```{r}
 new_data <- merged_data_subset |> 
-  dplyr::select(-isco,-job,-COUNTRY,-change) |> 
+  dplyr::select(-isco,-job,-avg_change) |> 
   distinct(.keep_all = TRUE)
   
 sapply(new_data, function(x) sum(is.na(x))*100/nrow(new_data))
@@ -881,16 +813,24 @@ new_data <- complete(mice_mod, action=m)
 ```
 
 ```{r}
-training <- subset(new_data, YEAR >= 2012 & YEAR <= 2020) |> dplyr::select(-YEAR)
-testing<- subset(new_data, YEAR >2020) |> dplyr::select(-YEAR)
+training <- subset(new_data, YEAR >= 2012 & YEAR <= 2018) 
+testing<- subset(new_data, YEAR ==2019) 
+```
+
+This is the distribution of the outcome variable: change of employment levels across the 40 occupations in the last 10 years.
+
+```{r}
+training %>% 
+  ggplot(aes(x=iscoprop)) +
+  geom_density(fill="navyblue")+ xlim(0,20)
 ```
 
 ### 4.3. Looking for the best lambda coefficient
 
 ```{r}
 set.seed(123)
-X <- training |> select (-ISCOPROP)
-Y <- training |> select (ISCOPROP)
+X <- training |> select (-iscoprop)
+Y <- training |> select (iscoprop)
 
 grid = 10^seq(10, -2, length = 100)
 
@@ -911,30 +851,38 @@ print(selected_variables)
 ```
 
 ```{r}
+all_variables <- c(selected_variables, "as.factor(COUNTRY)", "YEAR")
 # Subset the original data to include only the selected variables
-selected_data <- new_data %>% select(all_of(c("ISCOPROP", selected_variables)))
-
-# Fit a final linear model
-lm_model <- lm(ISCOPROP ~ ., data = selected_data)
-summary(lm_model)
+formula <- as.formula(paste("iscoprop ~ ", paste(all_variables, collapse = " + ")))
+selected_data <- training %>% select(all_of(c("iscoprop", selected_variables, "COUNTRY", "YEAR")))
+formula
 ```
 
-**infogath (Information Gathering and Evaluation**): This variable represents the ability or involvement in tasks related to gathering and evaluating information from various sources, including compiling, coding, categorizing, calculating, tabulating, auditing, verifying, entering, transcribing, recording, storing, or maintaining information in written or electronic/magnetic form.
+```{r}
+# Fit a linear model
+lm_model <- lm(formula, data = training)
+summary(lm_model)
 
-**ICTadvanced (Advanced ICT Usage):** This variable represents the usage of advanced information and communication technology (ICT), including computers and computer systems (both software and hardware). It involves tasks such as programming, software development, adjusting functions, data entry, or processing information using ICT tools.
+# Linear mixed model
+library(lme4)
+model <- lmer(iscoprop ~ sunratio + satratio + nightratio + shiftratio + extraratio + 
+    supratio + ftratio + onratio + femratio + empchange + strength + 
+    dexterity + navigation + uncodified + business + humanities + 
+    numeracy + probsolving + infogath + creativity + planning + 
+    social + serving + managing + autonomy + latitude + control + 
+    team + repetitiv + standard + certainty + machines + ICT + 
+    ICTbasic + ICTadvanced + (1 | COUNTRY), data = training)
+summary(model)
+```
 
-For each unit increase in advanced ICT usage, holding other variables constant, there is an estimated increase of 0.133054 units in the average change in employment between 2012 and 2020.
 
 However, this model only explains 35% of the variance in the outcome variable, which still gives us room for improvement. Therefore, in the following section I will try different Machine Learning approaches to find the best fit for our data.
 
-## 5. ADVANCED REGRESSION
-
-This is the distribution of the outcome variable: change of employment levels across the 40 occupations in the last 10 years.
-
 ```{r}
-training %>% ggplot(aes(x=avg_year)) + 
-  geom_density(fill="navyblue")+ xlim(-1,1)
+formula=
 ```
+
+## 5. ADVANCED REGRESSION
 
 #### Correlations
 
@@ -962,37 +910,20 @@ corr %>%
        x = 'Correlation', y = element_blank()) + theme_minimal()
 ```
 
-```{r}
-cor_matrix <- cor(training)
-eigenvalues <-eigen(cor_matrix)$values
-eigenvalues_rounded <-round(eigen(cor_matrix)$values,4)
-
-eigen_df <- data.frame(
-  Variable = colnames(cor_matrix),
-  Eigenvalue = eigenvalues_rounded
-)
-eigen_df
-```
-
-Indicate the main formula
-
-```{r}
-formula <- as.formula(paste("ISCOPROP ~ ", paste(selected_variables, collapse = " + ")))
-formula
-```
 
 From now on, we are going to try many models, so it’s convenient to create a data frame with all the predictors.
 
 ```{r}
-test_results <- data.frame(ISCOPROP = testing$ISCOPROP)
+test_results <- data.frame(iscoprop = testing$iscoprop)
 ```
+
 
 #### The train control
 
 ```{r}
 set.seed(123)
 ctrl <- trainControl(method = "repeatedcv", 
-                     number = 5, repeats = 3)
+                     number = 5, repeats = 1)
 ```
 
 ### Linear regression
@@ -1007,11 +938,11 @@ lm_tune <- train(formula,
 lm_tune
 
 test_results$lm <- predict(lm_tune, newdata=testing)
-postResample(pred = test_results$lm,  obs = test_results$ISCOPROP)
+postResample(pred = test_results$lm,  obs = test_results$iscoprop)
 ```
 
 ```{r}
-qplot(test_results$lm, test_results$avg_year) + 
+qplot(test_results$lm, test_results$ISCOPROP) + 
   labs(title="Linear Regression Observed VS Predicted",
        x="Predicted", y="Observed") +
   lims(x = c(-1,1), y = c(-1,1)) +
@@ -1050,31 +981,29 @@ for_tune
 ```{r}
 set.seed(123)
 test_results$frw <- round(predict(for_tune, testing),8)
-postResample(pred = test_results$frw,  obs = test_results$ISCOPROP)
+postResample(pred = test_results$frw,  obs = test_results$iscoprop)
 ```
 
 ```{r}
-coef(for_tune$finalModel, for_tune$bestTune$nvmax)
+coef <- coef(for_tune$finalModel, for_tune$bestTune$nvmax)
 ```
 
 These coefficients represent the estimated effects of each predictor variable on the response variable in the forward regression model with the optimal number of predictors.
 
 ```{r}
- formula2 = ISCOPROP ~   SUPRATIO   + strength   + numeracy  +    social   +  serving +   managing + team  +  standard +  certainty     +   ICT
+ formula2 = 
 ```
 
 ### Lasso Regression
 
 ```{r}
 set.seed(123)
-
 lasso_grid <- expand.grid(fraction = seq(.01, 1, length = 100))
-lasso_tune <- train(formula2, data = training,
+lasso_tune <- train(formula, data = training,
                     method='lasso',
                     preProc=c('scale','center'),
                     tuneGrid = lasso_grid,
                     trControl=ctrl)
-lasso_tune
 ```
 
 ```{r}
@@ -1089,7 +1018,7 @@ postResample(pred = test_results$lasso,  obs = test_results$ISCOPROP)
 
 ```{r}
 set.seed(123)
-knn_tune <- train(formula2, 
+knn_tune <- train(formula, 
                   data = training,
                   method = "kknn",   
                   preProc=c('scale','center'),
@@ -1100,7 +1029,7 @@ knn_tune <- train(formula2,
 ```{r}
 set.seed(123)
 test_results$knn <- round(predict(knn_tune, testing),8)
-postResample(pred = test_results$knn,  obs = test_results$ISCOPROP)
+postResample(pred = test_results$knn,  obs = test_results$iscoprop)
 ```
 
 ```{r}
@@ -1109,15 +1038,14 @@ plot(varImp(knn_tune, scale = F), scales = list(y = list(cex = .95)))
 ```
 
 ```{r, eval=FALSE}
-partial(knn_tune, pred.var = "ICTadvanced", plot = TRUE, rug = TRUE)
-partial(knn_tune, pred.var = "repetitiv", plot = TRUE, rug = TRUE)
+partial(knn_tune, pred.var = "ICT", plot = TRUE, rug = TRUE)
 ```
 
 ### Random Forest
 
 ```{r}
 set.seed(123)
-rf_tune <- train(formula2, 
+rf_tune <- train(formula, 
                  data = training,
                  method = "rf",
                  preProc=c('scale','center'),
@@ -1127,7 +1055,7 @@ rf_tune <- train(formula2,
                  importance = TRUE)
 
 test_results$rf <- round(predict(rf_tune, testing),8)
-postResample(pred = test_results$rf,  obs = test_results$ISCOPROP)
+postResample(pred = test_results$rf,  obs = test_results$iscoprop)
 ```
 
 ```{r}
@@ -1144,7 +1072,7 @@ grid <- expand.grid(interaction.depth = c(1, 3, 5),
                     shrinkage = 0.1,
                     n.minobsinnode = 10)
 
-xgb <- train(formula2, data = training,
+xgb <- train(formula, data = training,
                method = "gbm",
                trControl = control,
                tuneGrid = grid,
@@ -1152,7 +1080,7 @@ xgb <- train(formula2, data = training,
 
 # 6. Evaluate the model's performance
 test_results$xgb <- round(predict(xgb, newdata = testing),8)
-postResample(pred = test_results$xgb,  obs = test_results$ISCOPROP)
+postResample(pred = test_results$xgb,  obs = test_results$iscoprop)
 plot(varImp(xgb, scale = F), scales = list(y = list(cex = .95))) 
 ```
 
@@ -1165,7 +1093,7 @@ diff_rounded
 
 ```{r}
 # Combination
-test_results$pred_change = (test_results$rf + test_results$xgb)/2
+test_results$pred_change = (test_results$knn + test_results$rf)/2
 postResample(pred = test_results$pred_change,  obs = test_results$ISCOPROP)
 ```
 
@@ -1185,7 +1113,7 @@ pred_change<- test_results |> ggplot(aes(x=pred_change)) +
 # Arrange together
 grid <- ggarrange(real_change,pred_change,
           ncol =2, nrow=1) 
-grid + ggtitle("Comparison of real vs predicted proportion of employees in 2021 across ocupations") 
+grid + ggtitle("Comparison of real vs predicted proportion of employees in 2019 across ocupations") 
 ```
 
 ### PLM Models
@@ -1196,7 +1124,7 @@ merged_data_subset$YEAR<- as.factor(merged_data_subset$YEAR)
 
 ```{r fig.height=20, fig.width=20}
 ggplot(merged_data_subset,
-       mapping = aes(x = YEAR, y = change, color = COUNTRY)) +
+       mapping = aes(x = YEAR, y = ISCOPROP, color = COUNTRY)) +
   geom_point() +
   geom_smooth(method = "loess", se = F) +
   facet_wrap(~ job, ncol = 5) +
@@ -1228,7 +1156,7 @@ ggplot(datos, aes(x = reorder(as.factor(job),ISCOPROP), y = ISCOPROP)) +
 ```
 
 ```{r}
-modelo <- plm(ISCOPROP ~  as.factor(YEAR) + FEMRATIO + EXTRARATIO + strength + dexterity + navigation + uncodified + business + humanities + numeracy + probsolving + creativity + planning + social + serving + managing + autonomy + latitude + team + repetitiv + standard + certainty + ICT + ICTbasic + ICTadvanced, data = datos_panel, model = "within")
+modelo <- lm(change ~ FEMRATIO + EXTRARATIO + strength + dexterity + navigation + uncodified + business + humanities + numeracy + probsolving + creativity + planning + social + serving + managing + autonomy + latitude + team + repetitiv + standard + certainty + ICT + ICTbasic + ICTadvanced + as.factor(COUNTRY)+as.factor(YEAR), data = datos_panel)
 
 summary(modelo)
 ```
@@ -1242,6 +1170,4 @@ modelo_transformado <- plm(ISCOPROP ~  FEMRATIO + FEMRATIO2 + log_ICT + dexterit
 summary(modelo_transformado)
 ```
 
-```{r}
-formula2
-```
+
