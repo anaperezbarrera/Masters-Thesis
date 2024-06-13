@@ -28,10 +28,13 @@ library(ggpubr)
 library(gbm)
 library(glmnet)
 library(mice)
+library(patchwork)
 library(pdp)
 library(randomForest)
 library(readr)
 library(reshape)
+library(stringr)
+library(sf)
 library(tidyverse)
 library(tidyr)
 ```
@@ -69,7 +72,6 @@ for (file in csv_files) {
   data$isco[data$isco == 99] <- NA
   
   # Being in employment: EMPSTAT
-  
   # Removing Out of labor force (EMPSTAT=9)
   data$EMPSTAT[data$EMPSTAT == 9] <- NA
   data <- data[!is.na(data$EMPSTAT), ]
@@ -413,7 +415,7 @@ add_iscoprop <- function(data) {
 }
 ```
 
-
+Cada fila en prop_data representa la proporción de empleados en una ocupación específica para un año específico.
 
 **Let's apply all the functions**
 
@@ -451,8 +453,7 @@ for (obj_name in ls()) {
     
     # Apply distinct function
       data <- data %>%
-      distinct(.keep_all = TRUE) %>%
-      select(-EMPSTAT)
+      distinct(.keep_all = TRUE) 
     
     # Guardar el dataframe procesado en la lista
     processed_datasets[[obj_name]] <- data
@@ -478,7 +479,7 @@ merged_data <- merged_data[!is.na(merged_data$isco), ]
 
 **The variable EMPSTAT** first distinguishes whether respondents between 15 and 89 years of age are employed or not; for respondents outside this age band, EMPSTAT is ‘not applicable’. If EMPSTAT is ‘1’ (employed), ILOSTAT is ‘1’ (employed) as well. EMPSTAT cases ‘2’ (not employed) are then further derived to ILOSTAT ‘2’ (unemployed) or ‘3’ (outside the labour force), while persons aged below 15 and above 89 are considered as outside the labour force by definition.
 
-**The new variable :employment rate variation** is calculated using the iscoprop variable (proportion of employees by year and occupation) to measure the yearly variation (loss/gain)between 2006-2021.
+**The new variable :employment rate variation** is calculated using the iscoprop variable (proportion of employees by year and occupation) to measure the yearly variation in employment.
 
 ```{r}
 merged_data <- merged_data %>%
@@ -508,16 +509,13 @@ iscoag <-isco2d |>
 Create the main dataset (2012-2021). Merge both dataframes to include the other predictors we will use for our analysis EXPLAIN WHY
 
 ```{r}
-# Subset by YEAR (2012-2021)
+# Subset and Merge (2012-2021)
 merged_data_subset <- merged_data |> filter(YEAR >= 2012)
-# Merge only with the filtered dataset
 merged_data_subset <- merge(merged_data_subset,iscoag,by="isco")
 
 # Organize the variables in both datasets
-# Dataset 2006-2021
-merged_data <- merged_data |> relocate(job,COUNTRY, .after = isco)
-# Dataset 2012-2021
-merged_data_subset <- merged_data_subset |> relocate(job,COUNTRY, .after = isco)
+merged_data <- merged_data |> relocate(job,COUNTRY, .after = isco)# Dataset 2006-2021
+merged_data_subset <- merged_data_subset |> relocate(job,COUNTRY, .after = isco)# Dataset 2012-2021
 ```
 
 #### E. Aggregated employment rate variation (2012-2021)
@@ -531,36 +529,61 @@ total_change_df <- merged_data_subset %>%
 # Calculate the yearly average change per occupation
 year_change_df<- merged_data_subset |> 
   group_by(YEAR,job,isco) |> 
-  summarise(avg_year = weighted.mean(change, weight=COUNTRY)*100)
+  summarise(avg_year = weighted.mean(empchange, weight=COUNTRY)*100)
 
-# Calculate the country average change per occupation
-country_change_df <- merged_data_subset %>%
-  group_by(COUNTRY,job,isco) %>%
-  summarise(avg_cntry = mean(change)*100) 
 
 # Perform the left join with the main dataset
 merged_data_subset <- left_join(merged_data_subset, total_change_df, by = c("job","isco")) 
 merged_data_subset <- left_join(merged_data_subset, year_change_df, by = c("job","isco", "YEAR"))
-merged_data_subset <- left_join(merged_data_subset, country_change_df, by = c("job","isco", "COUNTRY"))
 ```
 
 ## 3. OCCUPATIONS AND EMPLOYMENT IN EUROPE: DESCRIPTIVE RESULTS
 
-Let's establish a common `custom_theme` to ensure a clean and consistent theme along the analysis.
+Create 12 sectors of activity based on the 40 occupations.
+
+```{r}
+ merged_data_subset <- merged_data_subset %>%
+  mutate(sector = case_when(
+    str_detect(job, "Chief") ~"Public Sector",
+    str_detect(job, "commercial|managers|hospitality|clerks|clerical") ~ "Administration",
+    str_detect(job, "Science") ~ "Science and engineering",
+    str_detect(job, "Health") ~ "Health and healthcare",
+    str_detect(job, "Teaching") ~ "Education",
+    str_detect(job, "Business|Sales") ~ "Finance, sales, and retail",
+    str_detect(job, "Information") ~ "Information Technology and Digital Communications",
+    str_detect(job, "Legal") ~ "Legal, social and cultural",
+    str_detect(job, "Personal|Protective") ~ "Care and social work",
+    str_detect(job, "Market|farmers|Agricultural") ~ "Agriculture, forestry and fishing",
+    str_detect(job, "Cleaners|preparation|Street|Refuse") ~ "Elementary services",
+    TRUE ~ "Construction, manufacturing and transport"
+  )) 
+```
+
+### Sector employment rate variation across Europe
+
+```{r}
+# Calculate the yearly average change per sector
+
+### Visualization
+ggplot(sector_data, aes(x = YEAR, y = empsector, color = sector, group = sector)) +
+  geom_line(size=1) + labs(x="", y="") + 
+  theme(legend.title = element_blank())+
+  theme_minimal()
+```
+
 
 ### Cross-country differences in average employment change (2012-2021): ICT professionals vs Manufacturing
 
 ```{r}
-library(stringr)
-tec <- merged_data_subset |> 
-  filter(str_detect(job, "technology")) |> 
-  select(COUNTRY,job,avg_cntry) |> 
-  distinct()
+tec<- merged_data_subset |> 
+  group_by(COUNTRY,sector) |> 
+  summarise(avg_country = weighted.mean(empchange, weight=COUNTRY)*100) |> 
+  filter(str_detect(sector, "Information")) 
 
-manu <- merged_data_subset |> 
-  filter(str_detect(job,"manufacturing")) |> 
-  select(COUNTRY,job,avg_cntry) |> 
-  distinct()
+manu<-merged_data_subset |> 
+  group_by(COUNTRY,sector) |> 
+  summarise(avg_country = weighted.mean(empchange, weight=COUNTRY)*100) |> 
+  filter(str_detect(sector, "manufacturing")) 
 ```
 
 ```{r}
@@ -578,7 +601,7 @@ left_join(tec, by = c("CNTR_ID" = "COUNTRY")) |>
   na.omit()
 
 map1<- ggplot() +
-  geom_sf(data = europe, aes(fill = avg_cntry)) +
+  geom_sf(data = europe, aes(fill = avg_country)) +
   scale_fill_gradient2(low = "darkgreen", mid = "white", high = "#b70000", name = "Average Change",midpoint = 0) +
    theme_void() + theme(
     legend.position = "none") + labs(title = "")+
@@ -593,18 +616,20 @@ left_join(manu, by = c("CNTR_ID" = "COUNTRY")) |>
   na.omit()
 
 map2<- ggplot() +
-  geom_sf(data= europe2, aes(fill = avg_cntry)) +
- scale_fill_gradient2(low = "darkgreen", mid = "white", high = "#b70000", name = "Average Change", midpoint = 0) + 
+  geom_sf(data= europe2, aes(fill = avg_country)) +
+   scale_fill_gradientn(
+    colors = c("darkgreen", "white", "#b70000"), 
+    values = rescale(c(-8, 0, 8)),
+    breaks = c(-6, 0, 6),
+    limits = c(-8, 8))+
   theme_void() + theme(
-    legend.position = "right", legend.title = element_blank(), legend.key.height =   unit(1, "cm"))+ labs(title="")+
- coord_sf(xlim = c(xmin, xmax), ylim = c(ymin, ymax), expand = FALSE)
+    legend.position = "right", 
+    legend.title = element_blank(), legend.key.height = unit(1, "cm")) + 
+  labs(title="")+ coord_sf(xlim = c(xmin, xmax), ylim = c(ymin, ymax), expand = FALSE)
 ```
 
 ```{r}
 # Arrange together
-library(sf)
-library(patchwork)
-
  map1 + map2
 ```
 
@@ -638,7 +663,7 @@ manu = merge(manu, var, by="COUNTRY", all.x = TRUE)
 
 ```{r}
 library(scales)
-tec1<-ggplot(tec, aes(x = Gini, y = avg_cntry, color=Gini,label=COUNTRY)) +
+tec1<-ggplot(tec, aes(x = Gini, y = avg_country, color=Gini,label=COUNTRY)) +
   geom_point(aes(size = GDP), alpha = 0.6) +
   scale_size(range = c(0,20)) + 
   geom_text(vjust = -1, hjust = 0.5, size = 3) +
@@ -651,7 +676,7 @@ tec1<-ggplot(tec, aes(x = Gini, y = avg_cntry, color=Gini,label=COUNTRY)) +
        subtitle = "") +
   theme_minimal() + guides(color = "none", size = "none")
 
-manu1<-ggplot(manu, aes(x = Gini, y = avg_cntry, color=Gini,label=COUNTRY)) +
+manu1<-ggplot(manu, aes(x = Gini, y = avg_country, color=Gini,label=COUNTRY)) +
   geom_point(aes(size = GDP), alpha = 0.6) +
   scale_size(range = c(0,20)) + 
   geom_text(vjust = -1, hjust = 0.5, size = 3) +
@@ -671,26 +696,10 @@ tec1 + manu1
 ### Occupational trends in the employment structure 
 
 ```{r}
-ict_sector <- iscoag |> 
-   mutate(sector = ifelse(ICT > 0.5, "High-ICT", "Low-ICT")) |> 
-  select(isco,sector) |> 
-  filter(sector=="High-ICT") |> 
-  left_join(isco_df, by="isco") |> 
-  dplyr::select(-sector) |> 
-  left_join(year_change_df, by=c("isco", "job")) |> 
-  group_by(YEAR) %>%
-  mutate(agg_year = mean(avg_year))
-
-mach_sector <- iscoag |> 
-   mutate(sector = ifelse(physical > 0.5, "Machines", "No-machines")) |> 
-  select(isco,sector) |> 
-  filter(sector=="Machines") |> 
-  left_join(isco_df, by="isco") |> 
-  dplyr::select(-sector) |> 
-  left_join(year_change_df, by=c("isco", "job")) |> 
-  group_by(YEAR) %>%
-  mutate(agg_year = mean(avg_year))
-
+merged_data_subset |> 
+   mutate(ict = ifelse(ICT > 0.5, "High-ICT", "Low-ICT")) |> 
+  select(job,ict) |> 
+  filter(ict=="High-ICT") 
 ```
 
 
@@ -742,8 +751,8 @@ ggarrange(c1,c2,c3,c4,c5,c6,
 **Differences in occupational exposure to Basic ICT'S**
 
 ```{r}
-ggplot(merged_data_subset, aes(x = ICTbasic, y = avg_change, 
-                               color = ICTbasic,label=job)) +
+ggplot(merged_data_subset, aes(x = ICT, y = avg_change, 
+                               color = ICT,label=job)) +
   geom_point(size = 1) +  
  geom_text(vjust = -1, hjust = 0.5, size = 3) +
   scale_color_gradient(low = "darkgreen", high = "red") + theme_minimal()
@@ -799,7 +808,7 @@ grid.arrange(puntos, barras, ncol = 2, widths = c(4, 1))
 
 ```{r}
 new_data <- merged_data_subset |> 
-  dplyr::select(-isco,-job,-avg_change) |> 
+  dplyr::select(-isco,-job,-EMPSTAT, -empchange, -avg_change,-avg_year) |> 
   distinct(.keep_all = TRUE)
   
 sapply(new_data, function(x) sum(is.na(x))*100/nrow(new_data))
@@ -813,8 +822,8 @@ new_data <- complete(mice_mod, action=m)
 ```
 
 ```{r}
-training <- subset(new_data, YEAR >= 2012 & YEAR <= 2018) 
-testing<- subset(new_data, YEAR ==2019) 
+training <- subset(new_data, YEAR >= 2012 & YEAR <= 2019) 
+testing<- subset(new_data, YEAR ==2020) 
 ```
 
 This is the distribution of the outcome variable: change of employment levels across the 40 occupations in the last 10 years.
@@ -822,7 +831,7 @@ This is the distribution of the outcome variable: change of employment levels ac
 ```{r}
 training %>% 
   ggplot(aes(x=iscoprop)) +
-  geom_density(fill="navyblue")+ xlim(0,20)
+  geom_density(fill="navyblue")
 ```
 
 ### 4.3. Looking for the best lambda coefficient
@@ -866,28 +875,25 @@ summary(lm_model)
 # Linear mixed model
 library(lme4)
 model <- lmer(iscoprop ~ sunratio + satratio + nightratio + shiftratio + extraratio + 
-    supratio + ftratio + onratio + femratio + empchange + strength + 
-    dexterity + navigation + uncodified + business + humanities + 
-    numeracy + probsolving + infogath + creativity + planning + 
-    social + serving + managing + autonomy + latitude + control + 
-    team + repetitiv + standard + certainty + machines + ICT + 
-    ICTbasic + ICTadvanced + (1 | COUNTRY), data = training)
+    supratio + ftratio + onratio + femratio + strength + dexterity + 
+    navigation + uncodified + business + humanities + numeracy + 
+    infogath + creativity + planning + social + serving + managing + 
+    autonomy + latitude + control + team + repetitiv + standard + 
+    certainty + machines + ICT + ICTbasic + ICTadvanced + (1 | COUNTRY), data = training)
 summary(model)
 ```
 
 
 However, this model only explains 35% of the variance in the outcome variable, which still gives us room for improvement. Therefore, in the following section I will try different Machine Learning approaches to find the best fit for our data.
 
-```{r}
-formula=
-```
 
 ## 5. ADVANCED REGRESSION
 
 #### Correlations
 
 ```{r}
-corr_change <- sort(cor(training)["ISCOPROP",], decreasing = TRUE)
+cor_data <-training |> dplyr::select(-COUNTRY,-YEAR,-sector)
+corr_change <- sort(cor(cor_data)["iscoprop",], decreasing = TRUE)
 corr <- data.frame(Predictor = names(corr_change), Correlation = corr_change)
 ```
 
@@ -961,7 +967,7 @@ alm_tune <- train(formula, data = training,
 alm_tune
 
 test_results$alm <- predict(alm_tune, testing)
-postResample(pred = test_results$alm,  obs = test_results$ISCOPROP)
+postResample(pred = test_results$alm,  obs = test_results$iscoprop)
 ```
 
 ### Forward Regression
@@ -985,13 +991,16 @@ postResample(pred = test_results$frw,  obs = test_results$iscoprop)
 ```
 
 ```{r}
-coef <- coef(for_tune$finalModel, for_tune$bestTune$nvmax)
+coef(for_tune$finalModel, for_tune$bestTune$nvmax)
 ```
 
 These coefficients represent the estimated effects of each predictor variable on the response variable in the forward regression model with the optimal number of predictors.
 
 ```{r}
- formula2 = 
+ formula2 = iscoprop ~ supratio+ femratio +  uncodified+ business + humanities  +  numeracy  + social+  team  +ICT + as.factor(COUNTRY)
+
+model <- lm(formula2, data = training)
+summary(model)
 ```
 
 ### Lasso Regression
@@ -999,7 +1008,7 @@ These coefficients represent the estimated effects of each predictor variable on
 ```{r}
 set.seed(123)
 lasso_grid <- expand.grid(fraction = seq(.01, 1, length = 100))
-lasso_tune <- train(formula, data = training,
+lasso_tune <- train(formula2, data = training,
                     method='lasso',
                     preProc=c('scale','center'),
                     tuneGrid = lasso_grid,
@@ -1009,7 +1018,7 @@ lasso_tune <- train(formula, data = training,
 ```{r}
 set.seed(123)
 test_results$lasso <- round(predict(lasso_tune, testing),8)
-postResample(pred = test_results$lasso,  obs = test_results$ISCOPROP)
+postResample(pred = test_results$lasso,  obs = test_results$iscoprop)
 ```
 
 ## 6. OCCUPATIONS AND EMPLOYMENT IN EUROPE: PREDICTIVE EXERCISE
@@ -1018,7 +1027,7 @@ postResample(pred = test_results$lasso,  obs = test_results$ISCOPROP)
 
 ```{r}
 set.seed(123)
-knn_tune <- train(formula, 
+knn_tune <- train(formula2, 
                   data = training,
                   method = "kknn",   
                   preProc=c('scale','center'),
@@ -1034,18 +1043,22 @@ postResample(pred = test_results$knn,  obs = test_results$iscoprop)
 
 ```{r}
 set.seed(123)
-plot(varImp(knn_tune, scale = F), scales = list(y = list(cex = .95))) 
+imp <- varImp(knn_tune, scale = FALSE) 
 ```
 
-```{r, eval=FALSE}
-partial(knn_tune, pred.var = "ICT", plot = TRUE, rug = TRUE)
+```{r}
+ggplot(imp, aes(x = reorder(rownames(imp), Overall), y = Overall)) +
+  geom_bar(stat = "identity", fill = "orange") +
+  labs(x = "", y = "") +
+  theme_minimal() +
+  coord_flip()  
 ```
 
 ### Random Forest
 
 ```{r}
 set.seed(123)
-rf_tune <- train(formula, 
+rf_tune <- train(formula2, 
                  data = training,
                  method = "rf",
                  preProc=c('scale','center'),
@@ -1072,7 +1085,7 @@ grid <- expand.grid(interaction.depth = c(1, 3, 5),
                     shrinkage = 0.1,
                     n.minobsinnode = 10)
 
-xgb <- train(formula, data = training,
+xgb <- train(formula2, data = training,
                method = "gbm",
                trControl = control,
                tuneGrid = grid,
@@ -1087,14 +1100,14 @@ plot(varImp(xgb, scale = F), scales = list(y = list(cex = .95)))
 Let’s summarize the MAE for all the tools to select the best models in predicting our response variable:
 
 ```{r}
-diff_rounded <- apply(test_results[-1], 2, function(x) round(mean(abs(x - test_results$ISCOPROP)), digits = 8))
+diff_rounded <- apply(test_results[-1], 2, function(x) round(mean(abs(x - test_results$iscoprop)), digits = 8))
 diff_rounded
 ```
 
 ```{r}
 # Combination
 test_results$pred_change = (test_results$knn + test_results$rf)/2
-postResample(pred = test_results$pred_change,  obs = test_results$ISCOPROP)
+postResample(pred = test_results$pred_change,  obs = test_results$iscoprop)
 ```
 
 ```{r}
@@ -1105,7 +1118,7 @@ hist(yhat, col="lightblue")
 **Comparison of real vs predicted average change in employment levels across occupations**
 
 ```{r}
-real_change <- test_results %>% ggplot(aes(x=ISCOPROP)) + 
+real_change <- test_results %>% ggplot(aes(x=iscoprop)) + 
   geom_density(fill="navyblue") + xlim(0, 20)
 pred_change<- test_results |> ggplot(aes(x=pred_change)) + 
   geom_density(fill="navyblue") +  xlim(0, 20)
@@ -1116,15 +1129,13 @@ grid <- ggarrange(real_change,pred_change,
 grid + ggtitle("Comparison of real vs predicted proportion of employees in 2019 across ocupations") 
 ```
 
-### PLM Models
 
-```{r}
-merged_data_subset$YEAR<- as.factor(merged_data_subset$YEAR)
-```
+
+### extra
 
 ```{r fig.height=20, fig.width=20}
 ggplot(merged_data_subset,
-       mapping = aes(x = YEAR, y = ISCOPROP, color = COUNTRY)) +
+       mapping = aes(x = YEAR, y = avg_year, color = COUNTRY)) +
   geom_point() +
   geom_smooth(method = "loess", se = F) +
   facet_wrap(~ job, ncol = 5) +
@@ -1132,21 +1143,9 @@ ggplot(merged_data_subset,
   labs(x = "", y = "", color = "Country") 
 ```
 
-```{r}
-datos <- merged_data_subset %>%
-  mutate(COUNTRY = as.factor(COUNTRY),
-         isco = as.factor(isco),
-         YEAR = as.integer(YEAR))
-
-datos <- datos %>%
-  filter(YEAR >= 2012 & YEAR <= 2020)
-
-library(plm)
-datos_panel <- pdata.frame(datos, index = c("COUNTRY", "isco", "YEAR"))
-```
 
 ```{r}
-ggplot(datos, aes(x = reorder(as.factor(job),ISCOPROP), y = ISCOPROP)) +
+ggplot(merged_data_subset, aes(x = reorder(as.factor(job),iscoprop), y = iscoprop)) +
   geom_boxplot() +
   theme_minimal() +
   coord_flip()+
@@ -1154,20 +1153,4 @@ ggplot(datos, aes(x = reorder(as.factor(job),ISCOPROP), y = ISCOPROP)) +
        x = "",
        y = "")
 ```
-
-```{r}
-modelo <- lm(change ~ FEMRATIO + EXTRARATIO + strength + dexterity + navigation + uncodified + business + humanities + numeracy + probsolving + creativity + planning + social + serving + managing + autonomy + latitude + team + repetitiv + standard + certainty + ICT + ICTbasic + ICTadvanced + as.factor(COUNTRY)+as.factor(YEAR), data = datos_panel)
-
-summary(modelo)
-```
-
-```{r}
-datos_panel <- datos_panel %>%
-  mutate(FEMRATIO2 = FEMRATIO^2, # Ejemplo de término polinomial
-         log_ICT = log(ICT + 1)) # Ejemplo de transformación logarítmica
-
-modelo_transformado <- plm(ISCOPROP ~  FEMRATIO + FEMRATIO2 + log_ICT + dexterity + navigation + uncodified + business + humanities + numeracy + probsolving + infogath + creativity + planning + social + serving + managing + autonomy + latitude + team + repetitiv + standard + certainty + ICTbasic + ICTadvanced, data = datos_panel, model = "within")
-summary(modelo_transformado)
-```
-
 
