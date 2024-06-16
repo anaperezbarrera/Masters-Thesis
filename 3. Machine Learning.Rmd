@@ -1,5 +1,5 @@
 ---
-title: "Machine Learning"
+title: "Master's Thesis Code - Machine Learning"
 author: "Ana Pérez"
 date: "`r Sys.Date()`"
 output: html_document
@@ -11,21 +11,55 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## PREPARING THE DATA FOR PREDICTION
 
-```{r, eval=FALSE}
-library(openxlsx)
-write.xlsx(merged_data_subset, file = "merged_data.xlsx", rowNames = FALSE)
+```{r}
+sum_emp_isco <-merged_data_subset %>%
+  group_by(YEAR, isco) %>%
+  summarise(sum_isco = sum(totalemp, na.rm = TRUE)) 
+
+sum_emp_year <- merged_data_subset %>%
+  group_by(YEAR) %>%
+  summarise(sum_year = sum(totalemp, na.rm = TRUE))
+
+merged_totals <- sum_emp_isco%>%
+  left_join(sum_emp_year, by = c("YEAR")) 
+
+merged_totals <- merged_totals %>%
+  mutate(share = (sum_isco / sum_year) * 100) |> dplyr::select(YEAR,isco,share)
+
+merged_data_subset<- merged_data_subset%>%
+  left_join(merged_totals, by = c("YEAR","isco")) 
+```
+
+
+```{r}
+library(lme4)
+library(lmerTest)
+library(modelsummary) 
+library(broom)
+library(knitr)
+```
+
+### Distribution of target variable
+
+This is the distribution of the outcome variable: 
+
+```{r}
+new_data %>% 
+  ggplot(aes(x=iscoprop)) +
+  geom_density(fill="navyblue") + theme_minimal()
 ```
 
 ### NA imputation
 
 ```{r}
 new_data <- merged_data_subset |> 
-  dplyr::select(-isco,-EMPSTAT,-sector, -empchange, -avg_change,-avg_year) |> 
+  dplyr::select(-job,-sector,-occup, -totalemp,-empchange, -avg_change,-avg_year,-iscoprop) |> 
   distinct(.keep_all = TRUE)
   
 sapply(new_data, function(x) sum(is.na(x))*100/nrow(new_data))
 ```
 
+We have to make sure there are no NA'S in our data. For that purpose, and since the number of NA is very low, we are using the...imputations with the Random Forest algorithm from the mice function. 
 
 ```{r}
 set.seed(123)
@@ -35,44 +69,21 @@ new_data <- complete(mice_mod, action=m)
 ```
 
 ```{r}
-training <- subset(new_data, YEAR >= 2012 & YEAR <= 2019) 
-testing<- subset(new_data, YEAR ==2020) 
-```
-
-### Distribution of target variable
-
-This is the distribution of the outcome variable: change of employment levels across the 40 occupations in the last 10 years.
-
-```{r}
-training %>% 
-  ggplot(aes(x=iscoprop)) +
-  geom_density(fill="navyblue") + theme_minimal()
-```
-
-
-```{r}
-library(viridis)
-library(RColorBrewer)
-
-ggplot(merged_data_subset, aes(x = reorder(as.factor(sector),avg_change),  y = avg_change)) +
- geom_boxplot(outlier.colour = "red", outlier.shape = 16, notch = TRUE, notchwidth = 0.5) +
-  theme_minimal() +
-  coord_flip()+
-  labs(x = "",
-       y = "") + theme(legend.position = "none")
+training <- subset(new_data, YEAR >= 2012 & YEAR <= 2018) 
+testing<- subset(new_data, YEAR ==2019) 
 ```
 
 ### Correlations
 
 ```{r}
-cor_data <-training |> dplyr::select(-COUNTRY,-YEAR)
+cor_data <-training |> dplyr::select(-COUNTRY,-YEAR,-isco)
 corr_change <- sort(cor(cor_data)["iscoprop",], decreasing = TRUE)
 corr <- data.frame(Predictor = names(corr_change), Correlation = corr_change)
 ```
 
 ```{r}
 nudge_x <- 0.01
-my_col <- viridisLite::mako(3)[2]
+my_col <- viridisLite::mako(4)[2]
 
 corr %>% 
   ggplot(aes(y = reorder(Predictor, Correlation), x = Correlation)) +
@@ -86,16 +97,18 @@ corr %>%
   ) +
   scale_y_discrete(breaks = NULL) +
   labs(title = "Correlations with the target variable",
-       x = 'Correlation', y = element_blank()) + theme_minimal()
+       x = '', y = element_blank()) + theme_minimal()
 ```
 
+### REGRESSION METHODS
 
-### Looking for the best lambda coefficient
+#### Lambda coefficients
 
 ```{r}
 set.seed(123)
-X <- training |> select (-iscoprop)
-Y <- training |> select (iscoprop)
+lambda <- training |> dplyr::select(-isco,-YEAR,-COUNTRY) # remove non-numeric
+X <- lambda |> select (-share)
+Y <- lambda |> select (share)
 
 grid = 10^seq(10, -2, length = 100)
 
@@ -118,10 +131,13 @@ print(selected_variables)
 ```{r}
 all_variables <- c(selected_variables, "as.factor(COUNTRY)", "YEAR")
 # Subset the original data to include only the selected variables
-formula <- as.formula(paste("iscoprop ~ ", paste(all_variables, collapse = " + ")))
-selected_data <- training %>% select(all_of(c("iscoprop", selected_variables, "COUNTRY", "YEAR")))
+formula <- as.formula(paste("share ~ ", paste(all_variables, collapse = " + ")))
+selected_data <- training %>% select(all_of(c("share", selected_variables, "COUNTRY","YEAR")))
 formula
 ```
+
+
+#### Ordinary Least Squares (OLS)
 
 ```{r}
 set.seed(123)
@@ -130,47 +146,76 @@ lm_model <- lm(formula, data = selected_data)
 summary(lm_model)
 ```
 
-## LINEAR MIXED MODEL
+```{r}
+results <- tidy(lm_model)
+```
+
+#### Linear Mixed Models
 
 ```{r}
-set.seed(123)
-library(lme4)
-# Linear mixed model
-lmm_model <- lmer(iscoprop ~ sunratio + satratio + nightratio + shiftratio + extraratio + supratio + ftratio + onratio + femratio + strength + dexterity + navigation + uncodified + business + humanities + numeracy + infogath + creativity + planning + social + serving + managing + autonomy + latitude + control + team + repetitiv + standard + certainty + machines + ICT + ICTbasic + ICTadvanced +  (1 | COUNTRY), data = training)
-summary(lmm_model)
+formula
 ```
 
 ```{r}
-model3 <- lmer(iscoprop ~ sunratio + satratio + nightratio + shiftratio + extraratio + supratio + ftratio + onratio + femratio +  strength + dexterity + navigation + uncodified + business + humanities + numeracy + infogath + creativity +  planning + social + serving + managing + autonomy + latitude + control + team + repetitiv + standard + certainty + machines + ICT + ICTbasic + ICTadvanced +
-           (1 | COUNTRY) + 
-           (1 | job) + 
+set.seed(123)
+lmm_model <- lmer(share ~ sunratio + satratio + nightratio + shiftratio + extraratio + 
+    supratio + ftratio + onratio + femratio + strength + dexterity + 
+    navigation + uncodified + business + humanities + numeracy + 
+    infogath + creativity + planning + social + serving + managing + 
+    autonomy + latitude + control + team + repetitiv + standard + 
+    certainty + machines + ICT + ICTbasic + ICTadvanced  + 
+      (1 | COUNTRY) +  (1 | YEAR), data = training)
+
+summary(lmm_model)
+print(lmm_model,correlation=T)
+```
+
+
+```{r}
+model3 <- lmer(share ~ sunratio + satratio + nightratio + shiftratio + extraratio + 
+    supratio + ftratio + onratio + femratio + strength + dexterity + 
+    navigation + uncodified + business + humanities + numeracy + 
+    infogath + creativity + planning + social + serving + managing + 
+    autonomy + latitude + control + team + repetitiv + standard + 
+    certainty + machines + ICT + ICTbasic + ICTadvanced +
+           (1 + sunratio + satratio + nightratio + shiftratio + extraratio + 
+    supratio + ftratio + onratio + femratio| COUNTRY) + 
            (1 | YEAR), 
-          control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 100000)),
+          control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 100000)), 
               data = training)
 summary(model3)
 ```
 
+### Evaluation and Robustness
+
 From now on, we are going to try many models, so it’s convenient to create a data frame with all the predictors.
 
 ```{r}
-test_results <- data.frame(iscoprop = testing$iscoprop)
+test_results <- data.frame(share = testing$share)
 ```
 
 ```{r}
 # Linear model 
 test_results$lm <- predict(lm_model, newdata = testing, allow.new.levels = TRUE)
-postResample(pred = test_results$lm,  obs = test_results$iscoprop)
+postResample(pred = test_results$lm,  obs = test_results$share)
 
 # Linear Mixed Model (COUNTRY)
 test_results$lmm <- predict(lmm_model, newdata = testing, allow.new.levels = TRUE)
-postResample(pred = test_results$lmm,  obs = test_results$iscoprop)
+postResample(pred = test_results$lmm,  obs = test_results$share)
 
 # Linear Mixed Model (COUNTRY, YEAR,ISCO)
 test_results$lmm2 <- predict(model3, newdata = testing, allow.new.levels = TRUE)
-postResample(pred = test_results$lmm2,  obs = test_results$iscoprop)
-
+postResample(pred = test_results$lmm2,  obs = test_results$share)
 ```
 
+```{r}
+qplot(test_results$lmm2, test_results$share) + 
+  labs(title="Linear Regression Observed VS Predicted",
+       x="Predicted", y="Observed") +
+  lims(x = c(0,20), y = c(0,20)) +
+  geom_abline(intercept = 0, slope = 1, colour = "darkred") +
+  theme_bw()
+```
 
 ```{r}
 lm_coef <- varImp(lm_model, scale = FALSE)
@@ -180,13 +225,13 @@ Extracting the proportion of variance due to COUNTRY/YEAR random effects
 
 ```{r}
 # Extract variance components
-var_components <- VarCorr(lmm_model)
+var_components <- VarCorr(model3)
 print(var_components)
 
 # Extract random effect variance for COUNTRY
-random_effect_variance <- unlist(var_components$COUNTRY)[1] 
+random_effect_variance <- unlist(var_components$YEAR)[1] 
 # Total variance (residual + random effect variance)
-total_variance <- attr(VarCorr(lmm_model), "sc")^2
+total_variance <- attr(VarCorr(model3), "sc")^2
 
 # Proportion of variance due to random effect (COUNTRY)
 prop_variance_random <- random_effect_variance / total_variance
@@ -196,6 +241,7 @@ prop_variance_random
 
 ```{r}
 coefs <- summary(model3)$coefficients
+
 coefs_df <- data.frame(Variable = rownames(coefs), Estimate = coefs[, 1], CI_low = coefs[, 1] - 1.96 * coefs[, 2], CI_high = coefs[, 1] + 1.96 * coefs[, 2])
 
 ggplot(coefs_df, aes(x = reorder(Variable, Estimate), y = Estimate)) +
@@ -206,183 +252,21 @@ ggplot(coefs_df, aes(x = reorder(Variable, Estimate), y = Estimate)) +
 ```
 
 
-## ADVANCED REGRESSION
-
-
-#### The train control
-
 ```{r}
-set.seed(123)
-ctrl <- trainControl(method = "repeatedcv", 
-                     number = 5, repeats = 1)
+anova(lmm_model, model3)
 ```
-
-### Linear regression
-
-```{r}
-set.seed(123)
-lm_tune <- train(formula,  
-                 data = training, 
-                 method = "lm", 
-                 preProc = c('scale', 'center'),
-                 trControl = ctrl)
-lm_tune
-
-test_results$lm <- predict(lm_tune, newdata=testing)
-postResample(pred = test_results$lm,  obs = test_results$iscoprop)
-```
-
-```{r}
-qplot(test_results$lm, test_results$iscoprop) + 
-  labs(title="Linear Regression Observed VS Predicted",
-       x="Predicted", y="Observed") +
-  lims(x = c(-1,1), y = c(-1,1)) +
-  geom_abline(intercept = 0, slope = 1, colour = "darkred") +
-  theme_bw()
-```
-
-### Overfitted linear regression
-
-```{r}
-set.seed(123)
-alm_tune <- train(formula, data = training, 
-                  method = "lm", 
-                  preProc=c('scale', 'center'),
-                  trControl = ctrl)
-alm_tune
-
-test_results$alm <- predict(alm_tune, testing)
-postResample(pred = test_results$alm,  obs = test_results$iscoprop)
-```
-
-### Forward Regression
-
-```{r}
-set.seed(123)
-for_tune <- train(formula, 
-                  data = training, 
-                  method = "leapForward", 
-                  preProc=c('scale', 'center'),
-                 tuneGrid = expand.grid(nvmax = 1:10),
-                  trControl = ctrl)
-
-for_tune
-```
-
-```{r}
-set.seed(123)
-test_results$frw <- round(predict(for_tune, testing),8)
-postResample(pred = test_results$frw,  obs = test_results$iscoprop)
-```
-
-```{r}
-coef(for_tune$finalModel, for_tune$bestTune$nvmax)
-```
-
-These coefficients represent the estimated effects of each predictor variable on the response variable in the forward regression model with the optimal number of predictors.
-
-```{r}
- formula2 = iscoprop ~ supratio+ femratio +  uncodified+ business + humanities  +  numeracy  + social+  team  +ICT + as.factor(COUNTRY)
-```
-
-### Lasso Regression
-
-```{r}
-set.seed(123)
-lasso_grid <- expand.grid(fraction = seq(.01, 1, length = 100))
-lasso_tune <- train(formula2, data = training,
-                    method='lasso',
-                    preProc=c('scale','center'),
-                    tuneGrid = lasso_grid,
-                    trControl=ctrl)
-```
-
-```{r}
-set.seed(123)
-test_results$lasso <- round(predict(lasso_tune, testing),8)
-postResample(pred = test_results$lasso,  obs = test_results$iscoprop)
-```
-
-## MACHINE LEARNING
-
-### K-Nearest Neighbors (KNN)
-
-```{r}
-set.seed(123)
-knn_tune <- train(formula2, 
-                  data = training,
-                  method = "kknn",   
-                  preProc=c('scale','center'),
-                  tuneGrid = data.frame(kmax=4:10,distance=2,kernel='optimal'),
-                  trControl = ctrl)
-```
-
-```{r}
-set.seed(123)
-test_results$knn <- round(predict(knn_tune, testing),8)
-postResample(pred = test_results$knn,  obs = test_results$iscoprop)
-```
-
-```{r}
-set.seed(123)
-imp <- varImp(knn_tune, scale = FALSE) 
-plot(varImp(knn_tune, scale = F), scales = list(y = list(cex = .95))) 
-```
-
-
-### Random Forest
-
-```{r}
-set.seed(123)
-rf_tune <- train(formula2, 
-                 data = training,
-                 method = "rf",
-                 preProc=c('scale','center'),
-                 trControl = ctrl,
-                 ntree = 100,
-                 tuneGrid = data.frame(mtry=c(1,3,5,7)),
-                 importance = TRUE)
-
-test_results$rf <- round(predict(rf_tune, testing),8)
-postResample(pred = test_results$rf,  obs = test_results$iscoprop)
-```
-
-```{r}
-plot(varImp(rf_tune, scale = F), scales = list(y = list(cex = .95))) 
-```
-
-### Gradient Boosting
-
-```{r}
-set.seed(123)
-control <- trainControl(method = "cv", number = 5)
-grid <- expand.grid(interaction.depth = c(1, 3, 5),
-                    n.trees = c(50, 100, 150),
-                    shrinkage = 0.1,
-                    n.minobsinnode = 10)
-
-xgb <- train(formula2, data = training,
-               method = "gbm",
-               trControl = control,
-               tuneGrid = grid,
-               verbose = FALSE)
-
-# 6. Evaluate the model's performance
-test_results$xgb <- round(predict(xgb, newdata = testing),8)
-postResample(pred = test_results$xgb,  obs = test_results$iscoprop)
-plot(varImp(xgb, scale = F), scales = list(y = list(cex = .95))) 
-```
+Con base en la comparación de los criterios de información y la prueba de Chi-cuadrado, model3 es claramente un modelo superior en comparación con lmm_model. Esto significa que la inclusión de efectos aleatorios adicionales (para sunratio, satratio, isco y YEAR) mejora significativamente el ajuste del modelo a tus datos
 
 Let’s summarize the MAE for all the tools to select the best models in predicting our response variable:
 
 ```{r}
-diff_rounded <- apply(test_results[-1], 2, function(x) round(mean(abs(x - test_results$iscoprop)), digits = 8))
+diff_rounded <- apply(test_results[-1], 2, function(x) round(mean(abs(x - test_results$share)), digits = 8))
 diff_rounded
 ```
 
 ```{r}
 # Combination
-test_results$pred_change = (test_results$knn + test_results$rf)/2
+test_results$pred_change = (test_results$lm + test_results$lmm2)/2
 postResample(pred = test_results$pred_change,  obs = test_results$iscoprop)
 ```
 
@@ -400,20 +284,28 @@ pred_change<- test_results |> ggplot(aes(x=pred_change)) +
   geom_density(fill="navyblue") +  xlim(0, 20)
 
 # Arrange together
-grid <- ggarrange(real_change,pred_change,
+ggarrange(real_change,pred_change,
           ncol =2, nrow=1) 
-grid + ggtitle("Comparison of real vs predicted proportion of employees in 2019 across ocupations") 
+```
+```{r}
+library(sjPlot)
+plot_model(model3, type = "pred")
+
+fixed_effects <- fixef(model3)
+importance <- abs(fixed_effects[-1])  # Exclude the intercept
+importance_df <- data.frame(Variable = names(importance), Importance = importance)
+importance_df <- importance_df %>% arrange(desc(Importance))
+
+plot <- plot_model(model3, type = "est", show.values = TRUE, value.offset = .3) +
+  labs(title = "Fixed Effects - model3") + theme_minimal()
+
+
+plot <- plot +
+  scale_x_discrete(limits = importance_df$Variable) +
+  labs(title = "Fixed Effects - Linear Mixed Model")
+
+print(plot)
 ```
 
 
-### extra
 
-```{r fig.height=20, fig.width=20}
-ggplot(merged_data_subset,
-       mapping = aes(x = YEAR, y = avg_year, color = COUNTRY)) +
-  geom_point() +
-  geom_smooth(method = "loess", se = F) +
-  facet_wrap(~ job, ncol = 5) +
-  scale_fill_manual() +
-  labs(x = "", y = "", color = "Country") 
-```

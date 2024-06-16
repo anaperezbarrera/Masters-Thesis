@@ -1,5 +1,5 @@
 ---
-title: "Master's Thesis Code - The Driver's of Employment Levels across European Occupations - A Study of the Occupational Trajectories"
+title: "Master's Thesis Code - Data Pre-processing"
 author: "Ana Pérez Barrera"
 date: "`r Sys.Date()`"
 output: html_document
@@ -33,6 +33,7 @@ library(pdp)
 library(randomForest)
 library(readr)
 library(reshape)
+library(scales)
 library(stringr)
 library(sf)
 library(tidyverse)
@@ -137,7 +138,7 @@ isco2d <- complete(mice_mod, action=m)
 sapply(isco2d, function(x) sum(is.na(x))*100/nrow(isco2d))
 
 # Save isco2d for later
- write.csv(isco2d, "isco2d.csv", row.names = F)
+write.csv(isco2d, "isco2d.csv", row.names = F)
 ```
 
 **Define Country Data**
@@ -415,6 +416,18 @@ add_iscoprop <- function(data) {
 }
 ```
 
+```{r}
+total_employees <- function(data) {
+data <- data |> 
+  group_by(YEAR,isco) |> 
+  summarise(totalemp = sum(EMPSTAT == 1)) |> 
+  left_join(data, by = c("YEAR","isco"))
+
+return(data)
+}
+```
+
+
 Cada fila en prop_data representa la proporción de empleados en una ocupación específica para un año específico.
 
 **Let's apply all the functions**
@@ -432,6 +445,7 @@ for (country in names(country_data)) {
   cntdata <- shifts_ratio(cntdata)
   prop_data <- calculate_iscoprop(cntdata)
   cntdata <- add_iscoprop(cntdata)
+  cntdata <- total_employees(cntdata)
   
   assign(country, cntdata)
   
@@ -453,7 +467,8 @@ for (obj_name in ls()) {
     
     # Apply distinct function
       data <- data %>%
-      distinct(.keep_all = TRUE) 
+      distinct(.keep_all = TRUE) |> 
+      dplyr::select(-EMPSTAT)
     
     # Guardar el dataframe procesado en la lista
     processed_datasets[[obj_name]] <- data
@@ -474,6 +489,7 @@ merged_data <- bind_rows(processed_datasets)
 merged_data$isco[merged_data$isco %in% c(10,20,30,40,50,60,70,80,90,0)] <- NA
 merged_data <- merged_data[!is.na(merged_data$isco), ]
 ```
+
 
 #### D. Annual employment rate variation (2006-2021)
 
@@ -559,18 +575,62 @@ Create 12 sectors of activity based on the 40 occupations.
   )) 
 ```
 
-### Sector employment rate variation across Europe
+A New Class Schema Based on Differences in the Work Logic: Oesch Class Schema
 
 ```{r}
-# Calculate the yearly average change per sector
+merged_data_subset <- merged_data_subset %>%
+  mutate(occup = case_when(
+    str_detect(job, "Chief| commercial|Production|Hospitality") ~"Directors and managers",
+    str_detect(job, "clerks|clerical") ~ "Administrative support",
+    str_detect(job, "Personal|Protective| Sales workers") ~ "Specialized workers",
+    str_detect(job, "Market|farmers") ~ "Skilled workers", 
+    str_detect(job, "Building|Metal|Handicraft|Electrical|Food processing") ~ "Trade workers", 
+    str_detect(job, "Stationary|Assemblers|Drivers") ~ "Operators", 
+    str_detect(job, "Cleaners|Labourers|fishery") ~ "Labourers", 
+    str_detect(job, "Food preparation|Street|Refuse") ~ "Elementary workers", 
+    TRUE ~ "Technicians and professionals"
+  )) 
+```
+
+```{r, eval=FALSE}
+library(openxlsx)
+write.xlsx(merged_data_subset, file = "merged_data_subset.xlsx", rowNames = FALSE)
+```
+
+
+### Share of employment by sector of activity
+
+```{r}
+yearly_total <- merged_data_subset |> 
+  group_by(YEAR) |> 
+  summarise(total = sum(totalemp))
+
+# Paso 2: Calcular el total de empleados por año y sector
+sector_yearly_total <- merged_data_subset |> 
+  group_by(YEAR, occup) |> 
+  summarise(total_sector = sum(totalemp))
+
+# Paso 3: Unir los totales por año y calcular la proporción
+sector_data <- sector_yearly_total |> 
+  left_join(yearly_total, by = "YEAR") |> 
+  mutate(secprop = total_sector / total * 100)
 
 ### Visualization
-ggplot(sector_data, aes(x = YEAR, y = empsector, color = sector, group = sector)) +
-  geom_line(size=1) + labs(x="", y="") + 
-  theme(legend.title = element_blank())+
+ggplot(sector_data, aes(x = YEAR, y = secprop, color = occup)) +
+  geom_line(size=1) + labs(x="", y="") + lims(y = c(0,25)) +
   theme_minimal()
 ```
 
+```{r}
+library(viridis)
+library(RColorBrewer)
+ggplot(merged_data_subset, aes(x = reorder(as.factor(occup),avg_change),  y = avg_change)) +
+ geom_boxplot(outlier.colour = "red", outlier.shape = 16, notch = TRUE, notchwidth = 0.5) +
+  theme_minimal() +
+  coord_flip()+
+  labs(x = "",
+       y = "") + theme(legend.position = "none")
+```
 
 ### Cross-country differences in average employment change (2012-2021): ICT professionals vs Manufacturing
 
@@ -757,6 +817,14 @@ ggplot(merged_data_subset, aes(x = ICT, y = avg_change,
  geom_text(vjust = -1, hjust = 0.5, size = 3) +
   scale_color_gradient(low = "darkgreen", high = "red") + theme_minimal()
 ```
+### Sector employment and occupational characteristics
+
+```{r}
+# Calculate the yearly average change per occupation
+merged_data_subset |> 
+  group_by(sector) |> 
+  summarise(avg_sec = weighted.mean(empchange, weight=COUNTRY)*100)
+```
 
 
 ```{r}
@@ -764,11 +832,9 @@ iscolong <-iscoag |>
     pivot_longer(cols = starts_with(c("ICTadvanced")),
                names_to = "characteristic",
                values_to = "values") |> 
-  left_join(isco_df, by="isco") |> 
-  left_join(total_change_df, by = c("job","isco"))
+  left_join(isco_df, by="isco") 
 
-#iscolong <- iscolong|> 
- # filter(str_detect(job, regex("technology|engineer|worker", ignore_case = TRUE)))
+  left_join(total_change_df, by = c("job","isco"))
 
 iscolong <- iscolong %>%
   mutate(job = fct_reorder(job, avg_change))
@@ -802,355 +868,5 @@ library(gridExtra)
 grid.arrange(puntos, barras, ncol = 2, widths = c(4, 1))
 ```
 
-## 4. PREPARING THE DATA FOR PREDICTION
 
-### 4.1. NA imputation
-
-```{r}
-new_data <- merged_data_subset |> 
-  dplyr::select(-isco,-job,-EMPSTAT, -empchange, -avg_change,-avg_year) |> 
-  distinct(.keep_all = TRUE)
-  
-sapply(new_data, function(x) sum(is.na(x))*100/nrow(new_data))
-```
-
-```{r}
-set.seed(123)
-m = 5 
-mice_mod <- mice(new_data, m=m, method='rf')
-new_data <- complete(mice_mod, action=m)
-```
-
-```{r}
-training <- subset(new_data, YEAR >= 2012 & YEAR <= 2019) 
-testing<- subset(new_data, YEAR ==2020) 
-```
-
-This is the distribution of the outcome variable: change of employment levels across the 40 occupations in the last 10 years.
-
-```{r}
-training %>% 
-  ggplot(aes(x=iscoprop)) +
-  geom_density(fill="navyblue")
-```
-
-### 4.3. Looking for the best lambda coefficient
-
-```{r}
-set.seed(123)
-X <- training |> select (-iscoprop)
-Y <- training |> select (iscoprop)
-
-grid = 10^seq(10, -2, length = 100)
-
-lasso_data<-cv.glmnet(x=as.matrix(X), y=Y[,1], lambda=grid, alpha=1)
-lambda_min<-predict(lasso_data, newx=as.matrix(X)[1:10,], s="lambda.min")
-lasso_coeff <- as.data.frame(as.matrix(predict(lasso_data, type="coefficients", s="lambda.min"))) |>  mutate(across(c(lambda.min), round, 2))
-
-coeff_df <- as.data.frame(as.matrix(lasso_coeff))
-coeff_df$variable <- rownames(coeff_df)
-
-# Filter non-zero coefficients and exclude intercept
-selected_variables <- coeff_df %>%
-  filter(lambda.min != 0) %>%
-  pull(variable) %>%
-  setdiff("(Intercept)")
-
-print(selected_variables)
-```
-
-```{r}
-all_variables <- c(selected_variables, "as.factor(COUNTRY)", "YEAR")
-# Subset the original data to include only the selected variables
-formula <- as.formula(paste("iscoprop ~ ", paste(all_variables, collapse = " + ")))
-selected_data <- training %>% select(all_of(c("iscoprop", selected_variables, "COUNTRY", "YEAR")))
-formula
-```
-
-```{r}
-# Fit a linear model
-lm_model <- lm(formula, data = training)
-summary(lm_model)
-
-# Linear mixed model
-library(lme4)
-model <- lmer(iscoprop ~ sunratio + satratio + nightratio + shiftratio + extraratio + 
-    supratio + ftratio + onratio + femratio + strength + dexterity + 
-    navigation + uncodified + business + humanities + numeracy + 
-    infogath + creativity + planning + social + serving + managing + 
-    autonomy + latitude + control + team + repetitiv + standard + 
-    certainty + machines + ICT + ICTbasic + ICTadvanced + (1 | COUNTRY), data = training)
-summary(model)
-```
-
-
-However, this model only explains 35% of the variance in the outcome variable, which still gives us room for improvement. Therefore, in the following section I will try different Machine Learning approaches to find the best fit for our data.
-
-
-## 5. ADVANCED REGRESSION
-
-#### Correlations
-
-```{r}
-cor_data <-training |> dplyr::select(-COUNTRY,-YEAR,-sector)
-corr_change <- sort(cor(cor_data)["iscoprop",], decreasing = TRUE)
-corr <- data.frame(Predictor = names(corr_change), Correlation = corr_change)
-```
-
-```{r}
-nudge_x <- 0.01
-my_col <- viridisLite::mako(3)[2]
-
-corr %>% 
-  ggplot(aes(y = reorder(Predictor, Correlation), x = Correlation)) +
-  geom_point(col = my_col) +
-  geom_segment(aes(xend = 0, yend = Predictor), col = my_col, size = 0.75) +
-  geom_text(
-    aes(x = 0, label = Predictor),
-    size = 2.5,
-    hjust = if_else(corr$Correlation > 0, 1, 0),
-    nudge_x = if_else(corr$Correlation > 0, -nudge_x, nudge_x)
-  ) +
-  scale_y_discrete(breaks = NULL) +
-  labs(title = "Correlations with the target variable",
-       x = 'Correlation', y = element_blank()) + theme_minimal()
-```
-
-
-From now on, we are going to try many models, so it’s convenient to create a data frame with all the predictors.
-
-```{r}
-test_results <- data.frame(iscoprop = testing$iscoprop)
-```
-
-
-#### The train control
-
-```{r}
-set.seed(123)
-ctrl <- trainControl(method = "repeatedcv", 
-                     number = 5, repeats = 1)
-```
-
-### Linear regression
-
-```{r}
-set.seed(123)
-lm_tune <- train(formula,  
-                 data = training, 
-                 method = "lm", 
-                 preProc = c('scale', 'center'),
-                 trControl = ctrl)
-lm_tune
-
-test_results$lm <- predict(lm_tune, newdata=testing)
-postResample(pred = test_results$lm,  obs = test_results$iscoprop)
-```
-
-```{r}
-qplot(test_results$lm, test_results$ISCOPROP) + 
-  labs(title="Linear Regression Observed VS Predicted",
-       x="Predicted", y="Observed") +
-  lims(x = c(-1,1), y = c(-1,1)) +
-  geom_abline(intercept = 0, slope = 1, colour = "darkred") +
-  theme_bw()
-```
-
-### Overfitted linear regression
-
-```{r}
-set.seed(123)
-alm_tune <- train(formula, data = training, 
-                  method = "lm", 
-                  preProc=c('scale', 'center'),
-                  trControl = ctrl)
-alm_tune
-
-test_results$alm <- predict(alm_tune, testing)
-postResample(pred = test_results$alm,  obs = test_results$iscoprop)
-```
-
-### Forward Regression
-
-```{r}
-set.seed(123)
-for_tune <- train(formula, 
-                  data = training, 
-                  method = "leapForward", 
-                  preProc=c('scale', 'center'),
-                 tuneGrid = expand.grid(nvmax = 1:10),
-                  trControl = ctrl)
-
-for_tune
-```
-
-```{r}
-set.seed(123)
-test_results$frw <- round(predict(for_tune, testing),8)
-postResample(pred = test_results$frw,  obs = test_results$iscoprop)
-```
-
-```{r}
-coef(for_tune$finalModel, for_tune$bestTune$nvmax)
-```
-
-These coefficients represent the estimated effects of each predictor variable on the response variable in the forward regression model with the optimal number of predictors.
-
-```{r}
- formula2 = iscoprop ~ supratio+ femratio +  uncodified+ business + humanities  +  numeracy  + social+  team  +ICT + as.factor(COUNTRY)
-
-model <- lm(formula2, data = training)
-summary(model)
-```
-
-### Lasso Regression
-
-```{r}
-set.seed(123)
-lasso_grid <- expand.grid(fraction = seq(.01, 1, length = 100))
-lasso_tune <- train(formula2, data = training,
-                    method='lasso',
-                    preProc=c('scale','center'),
-                    tuneGrid = lasso_grid,
-                    trControl=ctrl)
-```
-
-```{r}
-set.seed(123)
-test_results$lasso <- round(predict(lasso_tune, testing),8)
-postResample(pred = test_results$lasso,  obs = test_results$iscoprop)
-```
-
-## 6. OCCUPATIONS AND EMPLOYMENT IN EUROPE: PREDICTIVE EXERCISE
-
-### K-Nearest Neighbors (KNN)
-
-```{r}
-set.seed(123)
-knn_tune <- train(formula2, 
-                  data = training,
-                  method = "kknn",   
-                  preProc=c('scale','center'),
-                  tuneGrid = data.frame(kmax=4:10,distance=2,kernel='optimal'),
-                  trControl = ctrl)
-```
-
-```{r}
-set.seed(123)
-test_results$knn <- round(predict(knn_tune, testing),8)
-postResample(pred = test_results$knn,  obs = test_results$iscoprop)
-```
-
-```{r}
-set.seed(123)
-imp <- varImp(knn_tune, scale = FALSE) 
-```
-
-```{r}
-ggplot(imp, aes(x = reorder(rownames(imp), Overall), y = Overall)) +
-  geom_bar(stat = "identity", fill = "orange") +
-  labs(x = "", y = "") +
-  theme_minimal() +
-  coord_flip()  
-```
-
-### Random Forest
-
-```{r}
-set.seed(123)
-rf_tune <- train(formula2, 
-                 data = training,
-                 method = "rf",
-                 preProc=c('scale','center'),
-                 trControl = ctrl,
-                 ntree = 100,
-                 tuneGrid = data.frame(mtry=c(1,3,5,7)),
-                 importance = TRUE)
-
-test_results$rf <- round(predict(rf_tune, testing),8)
-postResample(pred = test_results$rf,  obs = test_results$iscoprop)
-```
-
-```{r}
-plot(varImp(rf_tune, scale = F), scales = list(y = list(cex = .95))) 
-```
-
-### Gradient Boosting
-
-```{r}
-set.seed(123)
-control <- trainControl(method = "cv", number = 5)
-grid <- expand.grid(interaction.depth = c(1, 3, 5),
-                    n.trees = c(50, 100, 150),
-                    shrinkage = 0.1,
-                    n.minobsinnode = 10)
-
-xgb <- train(formula2, data = training,
-               method = "gbm",
-               trControl = control,
-               tuneGrid = grid,
-               verbose = FALSE)
-
-# 6. Evaluate the model's performance
-test_results$xgb <- round(predict(xgb, newdata = testing),8)
-postResample(pred = test_results$xgb,  obs = test_results$iscoprop)
-plot(varImp(xgb, scale = F), scales = list(y = list(cex = .95))) 
-```
-
-Let’s summarize the MAE for all the tools to select the best models in predicting our response variable:
-
-```{r}
-diff_rounded <- apply(test_results[-1], 2, function(x) round(mean(abs(x - test_results$iscoprop)), digits = 8))
-diff_rounded
-```
-
-```{r}
-# Combination
-test_results$pred_change = (test_results$knn + test_results$rf)/2
-postResample(pred = test_results$pred_change,  obs = test_results$iscoprop)
-```
-
-```{r}
-yhat = test_results$pred_change
-hist(yhat, col="lightblue")
-```
-
-**Comparison of real vs predicted average change in employment levels across occupations**
-
-```{r}
-real_change <- test_results %>% ggplot(aes(x=iscoprop)) + 
-  geom_density(fill="navyblue") + xlim(0, 20)
-pred_change<- test_results |> ggplot(aes(x=pred_change)) + 
-  geom_density(fill="navyblue") +  xlim(0, 20)
-
-# Arrange together
-grid <- ggarrange(real_change,pred_change,
-          ncol =2, nrow=1) 
-grid + ggtitle("Comparison of real vs predicted proportion of employees in 2019 across ocupations") 
-```
-
-
-
-### extra
-
-```{r fig.height=20, fig.width=20}
-ggplot(merged_data_subset,
-       mapping = aes(x = YEAR, y = avg_year, color = COUNTRY)) +
-  geom_point() +
-  geom_smooth(method = "loess", se = F) +
-  facet_wrap(~ job, ncol = 5) +
-  scale_fill_manual() +
-  labs(x = "", y = "", color = "Country") 
-```
-
-
-```{r}
-ggplot(merged_data_subset, aes(x = reorder(as.factor(job),iscoprop), y = iscoprop)) +
-  geom_boxplot() +
-  theme_minimal() +
-  coord_flip()+
-  labs(title = "Distribution of the proportion of employees by occupation",
-       x = "",
-       y = "")
-```
 
