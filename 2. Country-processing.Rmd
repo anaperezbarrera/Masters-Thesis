@@ -467,8 +467,7 @@ for (obj_name in ls()) {
     
     # Apply distinct function
       data <- data %>%
-      distinct(.keep_all = TRUE) |> 
-      dplyr::select(-EMPSTAT)
+      distinct(.keep_all = TRUE) 
     
     # Guardar el dataframe procesado en la lista
     processed_datasets[[obj_name]] <- data
@@ -542,15 +541,8 @@ total_change_df <- merged_data_subset %>%
   group_by(job,isco) %>%
   summarise(avg_change = weighted.mean(empchange, weight = COUNTRY)*100) 
 
-# Calculate the yearly average change per occupation
-year_change_df<- merged_data_subset |> 
-  group_by(YEAR,job,isco) |> 
-  summarise(avg_year = weighted.mean(empchange, weight=COUNTRY)*100)
-
-
 # Perform the left join with the main dataset
 merged_data_subset <- left_join(merged_data_subset, total_change_df, by = c("job","isco")) 
-merged_data_subset <- left_join(merged_data_subset, year_change_df, by = c("job","isco", "YEAR"))
 ```
 
 ## 3. OCCUPATIONS AND EMPLOYMENT IN EUROPE: DESCRIPTIVE RESULTS
@@ -594,9 +586,8 @@ merged_data_subset <- merged_data_subset %>%
 
 ```{r, eval=FALSE}
 library(openxlsx)
-write.xlsx(merged_data_subset, file = "merged_data_subset.xlsx", rowNames = FALSE)
+write.csv(merged_data_subset, file = "merged_data_subset.csv", row.names  = FALSE)
 ```
-
 
 ### Share of employment by sector of activity
 
