@@ -565,6 +565,7 @@ Create 12 sectors of activity based on the 40 occupations.
     str_detect(job, "Cleaners|preparation|Street|Refuse") ~ "Elementary services",
     TRUE ~ "Construction, manufacturing and transport"
   )) 
+
 ```
 
 A New Class Schema Based on Differences in the Work Logic: Oesch Class Schema
@@ -592,35 +593,34 @@ write.csv(merged_data_subset, file = "merged_data_subset.csv", row.names  = FALS
 ### Share of employment by sector of activity
 
 ```{r}
+library(RColorBrewer)
+# Total employees per YEAR
 yearly_total <- merged_data_subset |> 
   group_by(YEAR) |> 
   summarise(total = sum(totalemp))
 
-# Paso 2: Calcular el total de empleados por año y sector
+# Total employees per year and sector
 sector_yearly_total <- merged_data_subset |> 
-  group_by(YEAR, occup) |> 
+  group_by(YEAR, sector) |> 
   summarise(total_sector = sum(totalemp))
 
-# Paso 3: Unir los totales por año y calcular la proporción
+# Join by YEAR
 sector_data <- sector_yearly_total |> 
   left_join(yearly_total, by = "YEAR") |> 
   mutate(secprop = total_sector / total * 100)
 
-### Visualization
-ggplot(sector_data, aes(x = YEAR, y = secprop, color = occup)) +
-  geom_line(size=1) + labs(x="", y="") + lims(y = c(0,25)) +
-  theme_minimal()
-```
+sector_data <- sector_data %>%
+  arrange(YEAR, secprop)
 
-```{r}
-library(viridis)
-library(RColorBrewer)
-ggplot(merged_data_subset, aes(x = reorder(as.factor(occup),avg_change),  y = avg_change)) +
- geom_boxplot(outlier.colour = "red", outlier.shape = 16, notch = TRUE, notchwidth = 0.5) +
-  theme_minimal() +
-  coord_flip()+
-  labs(x = "",
-       y = "") + theme(legend.position = "none")
+# Convertir 'sector' en un factor con niveles ordenados
+sector_data$sector <- factor(sector_data$sector, levels = rev(unique(sector_data$sector)))
+
+### Visualization
+ggplot(sector_data, aes(x = YEAR, y = secprop, color = sector)) +
+  geom_line(size = 1.2) +  # Usar geom_line para las líneas
+  geom_point(size = 2, shape = 21, fill = "white") + 
+  labs(x="", y="") + lims(y = c(0,25)) + scale_color_brewer(palette = "Paired") + 
+  theme_minimal() + theme(legend.title = element_blank())
 ```
 
 ### Cross-country differences in average employment change (2012-2021): ICT professionals vs Manufacturing
@@ -653,9 +653,9 @@ left_join(tec, by = c("CNTR_ID" = "COUNTRY")) |>
 
 map1<- ggplot() +
   geom_sf(data = europe, aes(fill = avg_country)) +
-  scale_fill_gradient2(low = "darkgreen", mid = "white", high = "#b70000", name = "Average Change",midpoint = 0) +
+  scale_fill_gradient2(low = "#b70000", mid = "white", high = "darkgreen", name = "Average Change",midpoint = 0) +
    theme_void() + theme(
-    legend.position = "none") + labs(title = "")+
+    legend.position = "none") + labs(title = "ICT")+
  coord_sf(xlim = c(xmin, xmax), ylim = c(ymin, ymax), expand = FALSE) 
 ```
 
@@ -669,14 +669,15 @@ left_join(manu, by = c("CNTR_ID" = "COUNTRY")) |>
 map2<- ggplot() +
   geom_sf(data= europe2, aes(fill = avg_country)) +
    scale_fill_gradientn(
-    colors = c("darkgreen", "white", "#b70000"), 
+    colors = c("#b70000", "white", "darkgreen"), 
     values = rescale(c(-8, 0, 8)),
     breaks = c(-6, 0, 6),
     limits = c(-8, 8))+
   theme_void() + theme(
     legend.position = "right", 
     legend.title = element_blank(), legend.key.height = unit(1, "cm")) + 
-  labs(title="")+ coord_sf(xlim = c(xmin, xmax), ylim = c(ymin, ymax), expand = FALSE)
+  labs(title="Manufacturing")+ 
+  coord_sf(xlim = c(xmin, xmax), ylim = c(ymin, ymax), expand = FALSE)
 ```
 
 ```{r}
@@ -802,62 +803,54 @@ ggarrange(c1,c2,c3,c4,c5,c6,
 **Differences in occupational exposure to Basic ICT'S**
 
 ```{r}
-ggplot(merged_data_subset, aes(x = ICT, y = avg_change, 
-                               color = ICT,label=job)) +
-  geom_point(size = 1) +  
- geom_text(vjust = -1, hjust = 0.5, size = 3) +
-  scale_color_gradient(low = "darkgreen", high = "red") + theme_minimal()
+selected <- merged_data_subset |> filter(str_detect(job,c("Information|manufacturing")))
+
+# Gráfico ggplot con etiquetas seleccionadas
+ggplot(merged_data_subset, aes(x = ICTadvanced, y = avg_change, color = ICTadvanced)) +
+  geom_point(size = 3) +
+  geom_text(data = selected, aes(label = job), vjust = -1, hjust = 0.5, size = 3) +
+  scale_color_gradient(low = "darkgreen", high = "red") + labs (x="",y="") + 
+  theme_minimal() +  theme(legend.position = "bottom") 
 ```
 ### Sector employment and occupational characteristics
 
 ```{r}
-# Calculate the yearly average change per occupation
-merged_data_subset |> 
+iscoag$sector <- merged_data_subset$sector[match(iscoag$isco,merged_data_subset$isco)] 
+sector_ag <- iscoag |> dplyr::select(-isco)
+sector_ag <- sector_ag |> 
   group_by(sector) |> 
-  summarise(avg_sec = weighted.mean(empchange, weight=COUNTRY)*100)
+   summarise(across(where(is.numeric), mean, na.rm = TRUE)) %>%
+  mutate(across(where(is.numeric), ~ round(., digits = 4)))
 ```
 
 
 ```{r}
-iscolong <-iscoag |> 
-    pivot_longer(cols = starts_with(c("ICTadvanced")),
+sector_long <- sector_ag |> 
+    pivot_longer(cols = starts_with(c("ICT", "machines", "physical", "social", "intellectual")),
                names_to = "characteristic",
-               values_to = "values") |> 
-  left_join(isco_df, by="isco") 
+               values_to = "values") 
 
-  left_join(total_change_df, by = c("job","isco"))
+order <- c("physical", "social", "intellectual", "ICTbasic","ICT","ICTadvanced", "machines")
 
-iscolong <- iscolong %>%
-  mutate(job = fct_reorder(job, avg_change))
+# Convertir characteristic a factor con el orden deseado
+sector_long$characteristic <- factor(sector_long$characteristic, levels = order)
 ```
 
-```{r}
-puntos <- ggplot(iscolong, aes(x = characteristic, 
-                               y = job, size = values, color=values)) +
-  geom_point(alpha = 0.6) +
-  scale_size_continuous(range = c(0, 6), name = "score") + 
+```{r fig.height=10, fig.width=10}
+new_palette <-c("#8B0000", "#FF5733", "#228B22", "#006400", "#004d00")
+ggplot(sector_long, aes(x = characteristic, y = sector, size = values, color=values)) +
+  geom_point(alpha = 1) +
+  scale_size_continuous(range = c(0, 20), name = "") + 
+  scale_color_gradientn(colours = new_palette) + 
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   labs(title = "",
        x = "",
-       y = "")
-
-# Luego, crea el gráfico de barras para avg_change
-barras <- ggplot(iscolong, aes(x = job, y = avg_change)) +
-  geom_col() +
-  coord_flip() +
-  theme_minimal() +
-   lims(y = c(-20,20)) +
-  theme(axis.title.y = element_blank(), 
-        axis.text.y = element_blank(),
-        axis.ticks.y = element_blank()) +
-  labs(x = "avg_change",
-       y = "")
-
-# Combina ambos gráficos usando gridExtra
-library(gridExtra)
-grid.arrange(puntos, barras, ncol = 2, widths = c(4, 1))
+       y = "") + theme(axis.text.y = element_text(face = "bold", size=10),
+                        axis.text.x = element_text(face = "bold", size = 10),
+                       legend.position = "top")
 ```
+
 
 
 
