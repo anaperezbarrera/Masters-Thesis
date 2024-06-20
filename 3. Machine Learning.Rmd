@@ -12,7 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r,eval=FALSE}
 sum_emp_isco <-merged_data_subset %>%
-  group_by(YEAR, isco) %>%
+  group_by(YEAR, sector) %>%
   summarise(sum_isco = sum(totalemp, na.rm = TRUE)) 
 
 sum_emp_year <- merged_data_subset %>%
@@ -23,17 +23,21 @@ merged_totals <- sum_emp_isco%>%
   left_join(sum_emp_year, by = c("YEAR")) 
 
 merged_totals <- merged_totals %>%
-  mutate(share = (sum_isco / sum_year) * 100) |> dplyr::select(YEAR,isco,share)
+  mutate(share = (sum_isco / sum_year) * 100) |> dplyr::select(YEAR,sector,share)
+```
 
- merged_totals <- merged_totals |> 
-  arrange(isco, YEAR) %>% 
-   group_by(isco) |> # Ordenar por isco y YEAR para asegurar el orden correcto
-  mutate(cambio = share - lag(share),  # Calcular el cambio
-         cambio = ifelse(is.na(cambio), 0, round(cambio, 2))) 
+```{r}
+merged_totals <- merged_totals |> 
+  arrange(sector, YEAR) %>% 
+   group_by(sector) |> 
+  mutate(cambio = share - lag(share),
+cambio = ifelse(is.na(cambio), 0, round(cambio, 2)))
+
 
 merged_data_subset<- merged_data_subset%>%
-  left_join(merged_totals, by = c("YEAR","isco"))
+  left_join(merged_totals, by = c("YEAR","sector"))
 ```
+
 
 ## PREPARING THE DATA 
 
@@ -51,9 +55,9 @@ library(kableExtra)
 
 ### NA imputation
 
-```{r}
+```{r,eval=FALSE}
 new_data <- merged_data_subset |> 
-  dplyr::select(-job,-sector,-occup,-totalemp,-empchange,-avg_change) |> 
+  dplyr::select(-job,-sector,-totalemp,-iscoprop,-empchange,-avg_change,-share) |> 
   distinct(.keep_all = TRUE)
   
 sapply(new_data, function(x) sum(is.na(x))*100/nrow(new_data))
@@ -61,7 +65,7 @@ sapply(new_data, function(x) sum(is.na(x))*100/nrow(new_data))
 
 We have to make sure there are no NA'S in our data. For that purpose, and since the number of NA is very low, we are using the...imputations with the Random Forest algorithm from the mice function. 
 
-```{r}
+```{r,eval=FALSE}
 set.seed(123)
 m = 5
 mice_mod <- mice(new_data, m=m, method='rf')
@@ -74,20 +78,20 @@ This is the distribution of the outcome variable:
 
 ```{r}
 new_data %>% 
-  ggplot(aes(x=iscoprop)) +
+  ggplot(aes(x=cambio)) +
   geom_density(fill="navyblue") + theme_minimal()
 ```
 
 ```{r}
 training <- subset(new_data, YEAR >= 2012 & YEAR <= 2018) 
-testing<- subset(new_data, YEAR ==2019) 
+testing<- subset(new_data, YEAR == 2019) 
 ```
 
 ### Correlations
 
 ```{r}
 cor_data <-training |> dplyr::select(-COUNTRY,-YEAR,-isco)
-corr_change <- sort(cor(cor_data)["iscoprop",], decreasing = TRUE)
+corr_change <- sort(cor(cor_data)["cambio",], decreasing = TRUE)
 corr <- data.frame(Predictor = names(corr_change), Correlation = corr_change)
 ```
 
@@ -110,15 +114,15 @@ corr %>%
        x = '', y = element_blank()) + theme_minimal()
 ```
 
-### REGRESSION METHODS
+## REGRESSION METHODS
 
-#### Lambda coefficients
+### Lambda coefficients
 
 ```{r}
 set.seed(123)
 # Use non-numeric
-X <- cor_data |> select (-iscoprop)
-Y <- cor_data |> select (iscoprop)
+X <- cor_data |> select (-cambio)
+Y <- cor_data |> select (cambio)
 
 grid = 10^seq(10, -2, length = 100)
 
@@ -137,99 +141,122 @@ selected_variables <- coeff_df %>%
 
 print(selected_variables)
 ```
-#### Ordinary Least Squares (OLS)
+### Ordinary Least Squares (OLS)
 
 ```{r}
 # Subset the original data to include only the selected variables
-formula <- as.formula(paste("iscoprop ~ ", paste(selected_variables, collapse = " + ")))
+formula <- as.formula(paste("cambio ~ ", paste(selected_variables, collapse = " + ")))
 ```
 
 ```{r}
 set.seed(123)
 # Fit a linear model
-lm <- lm(formula, data = selected_data)
+lm <- lm(formula, data=training)
 summary(lm)
 ```
-#### OLS controlling by country and time-fixed effects
+### OLS controlling for country fixed-effects
 
 ```{r}
 all_variables <- c(selected_variables, "as.factor(COUNTRY)", "YEAR")
-formula <- as.formula(paste("iscoprop ~ ", paste(all_variables, collapse = " + ")))
-selected_data <- training %>% select(all_of(c("iscoprop", selected_variables, "COUNTRY","YEAR")))
+formula <- as.formula(paste("cambio ~ ", paste(all_variables, collapse = " + ")))
+selected_data <- training %>% select(all_of(c("cambio", selected_variables, "COUNTRY","YEAR")))
 ```
 
 
 ```{r}
 set.seed(123)
 # Fit a linear model
-lm2 <- lm(formula, data = selected_data)
+lm2 <- lm(formula, 
+    data = training)
 summary(lm2)
 ```
+```{r}
+all_variables <- c(selected_variables, "as.factor(COUNTRY)", "as.factor(YEAR)")
+formula <- as.formula(paste("cambio ~ ", paste(all_variables, collapse = " + ")))
+selected_data <- training %>% select(all_of(c("cambio", selected_variables, "COUNTRY","YEAR", "ICTadvanced")))
+```
 
-#### Linear Mixed Models
+```{r}
+# Fit a linear model
+lm3 <- lm(formula, 
+    data = training)
+summary(lm3)
+```
+
+### Linear Mixed Models
 
 ```{r}
 set.seed(123)
-lmm <- lmer(iscoprop ~  sunratio + nightratio + shiftratio +
-    supratio + femratio +strength + dexterity + 
-    navigation + uncodified + business + humanities + numeracy + 
-    infogath + creativity + planning + social + serving + managing + 
-    autonomy + latitude + control + team + repetitiv + standard + 
-    certainty + machines + ICT + ICTbasic + ICTadvanced  + 
-      (1 | COUNTRY) +  (1 | YEAR), data = training)
+lmm <- lmer(cambio ~ femratio*ICTadvanced + onratio*ICTadvanced + femratio*machines + 
+              serving + caring + repetitiv + machines  + ICTadvanced + (1 | YEAR), 
+             control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 10000)), data = training)
+           
 
 summary(lmm)
 ```
 
 ```{r}
-lmm2 <- lmer(iscoprop ~  strength + dexterity + 
-    navigation + uncodified + business + humanities + numeracy + 
-    infogath + creativity + planning + social + serving + managing + 
-    autonomy + latitude + control + team + repetitiv + standard + 
-    certainty + machines + ICT + ICTbasic + ICTadvanced +
-           (1 + sunratio + nightratio + shiftratio +
-    supratio + femratio | COUNTRY) + 
-           (1 | YEAR), 
-          control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 10000)), data = training)
+lmm2 <- lmer(cambio ~  serving + caring + repetitiv +machines + ICTadvanced + 
+               (1 + femratio | YEAR), 
+             control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 10000)), data = training)
 
 summary(lmm2)
 ```
 
 ```{r}
-random_effects <- ranef(lmm2)
+coefs <- summary(lmm)$coefficients
+coefs_df <- data.frame(Variable = rownames(coefs), 
+                       Estimate = coefs[, 1], CI_low = coefs[, 1] - 1.96 * coefs[, 2], 
+                       CI_high = coefs[, 1] + 1.96 * coefs[, 2])
 
-# Random intercepts for COUNTRY
-random_intercepts_country <- random_effects$COUNTRY
-
-# Convert to data frame
-random_intercepts_df <- as.data.frame(random_intercepts_country)
-
-
+ggplot(coefs_df, aes(x = reorder(Variable, Estimate), y = Estimate)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = CI_low, ymax = CI_high), width = 0.2) +
+  coord_flip() +
+  theme_minimal() 
 ```
 
+#### Fixed-effects
 
-### Evaluation and Robustness
+```{r}
+fixed_effects <- fixef(lmm2)
+importance <- abs(fixed_effects[-1])  # Exclude the intercept
+importance_df <- data.frame(Variable = names(importance), Importance = importance)
+importance_df <- importance_df %>% arrange(desc(Importance))
+
+top_effects <- importance_df$Variable[1:5]
+
+plot <- plot_model(lmm2, type = "est", show.values = TRUE, value.offset = .3) +
+  labs(title = "") + theme_minimal()
+  
+plot +
+  scale_x_discrete(limits = top_effects) + labs(x="",y="",title = "") 
+```
+
+#### Random-effects
+
+### EVALUATION AND ROBUSTNESS
 
 From now on, we are going to try many models, so it’s convenient to create a data frame with all the predictors.
 
 ```{r}
-test_results <- data.frame(iscoprop = testing$iscoprop)
+test_results <- data.frame(cambio = testing$cambio)
 ```
 
 ```{r}
 # Linear model 
 test_results$ols <- predict(lm, newdata = testing, allow.new.levels = TRUE)
-lm<- postResample(pred = test_results$ols,  obs = test_results$iscoprop)
+lm<- postResample(pred = test_results$ols,  obs = test_results$cambio)
 
 test_results$ols2 <- predict(lm2, newdata = testing, allow.new.levels = TRUE)
-lm2<- postResample(pred = test_results$ols2,  obs = test_results$iscoprop)
+lm2<- postResample(pred = test_results$ols2,  obs = test_results$cambio)
 
 # Linear Mixed Model 
 test_results$lmm <- predict(lmm, newdata = testing, allow.new.levels = TRUE)
-lmm<-postResample(pred = test_results$lmm,  obs = test_results$iscoprop)
+lmm<-postResample(pred = test_results$lmm,  obs = test_results$cambio)
 
 test_results$lmm2 <- predict(lmm2, newdata = testing, allow.new.levels = TRUE)
-lmm2<-postResample(pred = test_results$lmm2,  obs = test_results$iscoprop)
+lmm2<-postResample(pred = test_results$lmm2,  obs = test_results$cambio)
 ```
 
 ```{r}
@@ -243,116 +270,93 @@ metrics_table
 ```
 
 ```{r}
-qplot(test_results$lmm2, test_results$iscoprop) + 
+qplot(test_results$lmm, test_results$cambio) + 
   labs(title="Linear Regression Observed VS Predicted",
        x="Predicted", y="Observed") +
-  lims(x = c(0,20), y = c(0,20)) +
   geom_abline(intercept = 0, slope = 1, colour = "darkred") +
   theme_bw()
 ```
 
 
-```{r}
-coefs <- summary(lmm2)$coefficients
-
-coefs_df <- data.frame(Variable = rownames(coefs), Estimate = coefs[, 1], CI_low = coefs[, 1] - 1.96 * coefs[, 2], CI_high = coefs[, 1] + 1.96 * coefs[, 2])
-
-ggplot(coefs_df, aes(x = reorder(Variable, Estimate), y = Estimate)) +
-  geom_point() +
-  geom_errorbar(aes(ymin = CI_low, ymax = CI_high), width = 0.2) +
-  coord_flip() +
-  theme_minimal() 
-```
-
 Let’s summarize the MAE for all the tools to select the best models in predicting our response variable:
 
 ```{r}
-diff_rounded <- apply(test_results[-1], 2, function(x) round(mean(abs(x - test_results$iscoprop)), digits = 8))
+diff_rounded <- apply(test_results[-1], 2, function(x) round(mean(abs(x - test_results$cambio)), 
+                                                             digits = 8))
 diff_rounded
 ```
 
-```{r}
-# Combination
-test_results$pred_change = test_results$lmm2
-postResample(pred = test_results$pred_change,  obs = test_results$iscoprop)
-```
 
 ```{r}
-yhat = test_results$pred_change
-hist(yhat, col="lightblue")
+library(lme4)
+library(caret)
+
+# Create folds
+set.seed(123)
+folds <- createFolds(training$cambio, k = 10)
+
+# Initialize storage for results
+results <- list()
+
+for(i in 1:length(folds)) {
+  training_indices <- setdiff(1:nrow(training), folds[[i]])
+  training_fold <- training[training_indices, ]
+  validation_fold <- training[folds[[i]], ]
+  
+  # Train the model
+  model <- lmer(cambio ~ serving + caring + repetitiv + machines + ICTadvanced + 
+                (1 + femratio | YEAR),  
+                control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 10000)), 
+                data = training_fold)
+  
+  # Predict on the validation set
+  predictions <- predict(model, newdata = validation_fold, allow.new.levels = TRUE)
+  
+  # Store results for each fold
+  fold_results <- data.frame(
+    obs = validation_fold$cambio,
+    pred = predictions
+  )
+  results[[i]] <- fold_results
+}
+
+# Combine results from all folds into a single data frame
+all_results <- do.call(rbind, results)
+
+# Calculate performance metrics
+mae <- mean(abs(all_results$obs - all_results$pred))
+mse <- mean((all_results$obs - all_results$pred)^2)
+rmse <- sqrt(mse)
+r_squared <- cor(all_results$obs, all_results$pred)^2
+
+performance_df <- data.frame(
+  MAE = mae,
+  MSE = mse,
+  RMSE = rmse,
+  R_squared = r_squared
+)
+
+# Print or use the dataframe as needed
+performance_df
+
 ```
 
 **Comparison of real vs predicted average change in employment levels across occupations**
 
 ```{r}
-real_change <- test_results %>% ggplot(aes(x=iscoprop)) + 
-  geom_density(fill="navyblue") + xlim(0, 20) 
-pred_change<- test_results |> ggplot(aes(x=pred_change)) + 
-  geom_density(fill="navyblue") +  xlim(0, 20)
+real_change <- all_results %>% ggplot(aes(x=obs)) + 
+  geom_density(fill="navyblue")  +theme_minimal()
+pred_change<- all_results |> ggplot(aes(x=pred)) + 
+  geom_density(fill="navyblue")  + theme_minimal()
 
 # Arrange together
 ggarrange(real_change,pred_change,
           ncol =2, nrow=1) 
 ```
 
-
 ```{r}
-library(sjPlot)
-#plot_model(model3, type = "pred")
-
-fixed_effects <- fixef(lmm2)
-importance <- abs(fixed_effects[-1])  # Exclude the intercept
-importance_df <- data.frame(Variable = names(importance), Importance = importance)
-importance_df <- importance_df %>% arrange(desc(Importance))
-
-top_effects <- importance_df$Variable[1:5]
-
-plot <- plot_model(lmm2, type = "est", show.values = TRUE, value.offset = .3) +
-  labs(title = "Fixed Effects - model3") + theme_minimal()
-  
-plot +
-  scale_x_discrete(limits = top_effects) + labs(x="",y="",title = "")
+library(texreg)
+# Usar stargazer para comparar modelos
+texreg(list(lmm, lmm2), file = "output.tex")
 ```
-
-```{r}
-# Custom train function to fit lmer model and return relevant metrics
-train_lmer <- function(data, formula, trControl) {
-  trainIndex <- createResample(data$iscoprop, times = trControl$number)
-  results <- lapply(trainIndex, function(indices) {
-    trainData <- data[indices, ]
-    testData <- data[-indices, ]
-    model <- lmer(formula, data = trainData)
-    predictions <- predict(model, newdata = testData, allow.new.levels = TRUE)
-    data.frame(obs = testData$iscoprop, pred = predictions)
-  })
-  
-  # Combine results and calculate performance metrics
-  all_results <- do.call(rbind, results)
-  mae <- mean(abs(all_results$obs - all_results$pred))
-  mse <- mean((all_results$obs - all_results$pred)^2)
-  rmse <- sqrt(mse)
-  r_squared <- cor(all_results$obs, all_results$pred)^2
-  
-  list(mae = mae, mse = mse, rmse = rmse, r_squared = r_squared)
-}
-
-# Define the trainControl for cross-validation
-train_control <- trainControl(method = "cv", number = 5, verboseIter = TRUE)
-
-# Define the model formula
-model_formula <- iscoprop ~ strength + dexterity + navigation + uncodified + 
-    business + humanities + numeracy + infogath + creativity + planning + 
-    social + serving + managing + autonomy + latitude + control + team + 
-    repetitiv + standard + certainty + machines + ICT + ICTbasic + 
-    ICTadvanced + (1 + sunratio + nightratio + shiftratio + supratio + 
-    femratio | COUNTRY) + (1 | YEAR)
-
-# Train and evaluate the model using custom function
-results <- train_lmer(training, model_formula, train_control)
-
-# Print the performance metrics
-print(results)
-```
-
-
 

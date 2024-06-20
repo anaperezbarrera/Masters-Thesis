@@ -558,12 +558,12 @@ Create 12 sectors of activity based on the 40 occupations.
     str_detect(job, "Health") ~ "Health and healthcare",
     str_detect(job, "Teaching") ~ "Education",
     str_detect(job, "Business|Sales") ~ "Finance, sales, and retail",
-    str_detect(job, "Information") ~ "Information Technology and Digital Communications",
+    str_detect(job, "Information") ~ "ICT",
     str_detect(job, "Legal") ~ "Legal, social and cultural",
     str_detect(job, "Personal|Protective") ~ "Care and social work",
     str_detect(job, "Market|farmers|Agricultural") ~ "Agriculture, forestry and fishing",
     str_detect(job, "Cleaners|preparation|Street|Refuse") ~ "Elementary services",
-    TRUE ~ "Construction, manufacturing and transport"
+    TRUE ~ "Manufacturing"
   )) 
 
 ```
@@ -803,14 +803,30 @@ ggarrange(c1,c2,c3,c4,c5,c6,
 **Differences in occupational exposure to Basic ICT'S**
 
 ```{r}
-selected <- merged_data_subset |> filter(str_detect(job,c("Information|manufacturing")))
-
+selected <- merged_data_subset |> filter(str_detect(job,c("Information|construction"))) |> 
+  distinct(job, .keep_all = TRUE)
 # Gráfico ggplot con etiquetas seleccionadas
-ggplot(merged_data_subset, aes(x = ICTadvanced, y = avg_change, color = ICTadvanced)) +
-  geom_point(size = 3) +
-  geom_text(data = selected, aes(label = job), vjust = -1, hjust = 0.5, size = 3) +
-  scale_color_gradient(low = "darkgreen", high = "red") + labs (x="",y="") + 
-  theme_minimal() +  theme(legend.position = "bottom") 
+ggplot(merged_data_subset, aes(x = ICTadvanced, y = avg_change, color = ICTadvanced, size=avg_change)) +
+   geom_point() +
+   geom_text_repel(
+    data = selected, 
+    aes(label = job), 
+    vjust = 10, 
+    hjust = -0.1, 
+    size = 7, 
+    )  +
+
+  scale_color_gradient(name= "Advanced ICT score",low = "#FF5733", high = "darkgreen",
+                        guide = guide_colorbar(title.position = "top", title.vjust = 1)) +
+    scale_size_continuous(name = "Employment variation", 
+                        guide = guide_legend(title.position = "top", title.vjust = 1)) +
+  labs (x="",y="") + 
+  theme_minimal() +  
+   theme(
+    legend.position = "bottom") 
+
+jpg_ecpol(ict, filename = "ict.jpg", width = 53, height = 20, unit = "cm", dpi = 300)
+
 ```
 ### Sector employment and occupational characteristics
 
@@ -838,19 +854,37 @@ sector_long$characteristic <- factor(sector_long$characteristic, levels = order)
 
 ```{r fig.height=10, fig.width=10}
 new_palette <-c("#8B0000", "#FF5733", "#228B22", "#006400", "#004d00")
-ggplot(sector_long, aes(x = characteristic, y = sector, size = values, color=values)) +
+
+ ggplot(sector_long, aes(x = characteristic, y = sector, size = values, color=values)) +
   geom_point(alpha = 1) +
-  scale_size_continuous(range = c(0, 20), name = "") + 
-  scale_color_gradientn(colours = new_palette) + 
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  labs(title = "",
-       x = "",
-       y = "") + theme(axis.text.y = element_text(face = "bold", size=10),
-                        axis.text.x = element_text(face = "bold", size = 10),
+  scale_size_continuous(range = c(0, 20), name = "Characteristic score",
+                         guide = guide_legend(title.position = "top", title.vjust = 1)) + 
+  scale_color_gradientn(colours = new_palette, name="Characteristic score",
+                        guide = guide_colorbar(title.position = "top", title.vjust = 1)) + 
+ theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0, hjust = 0.5, vjust = 15)) +  
+  labs(title = "", x = "", y = "") +
+  theme(
+    axis.text.y = element_text(face = "bold", size = 14),
+    axis.text.x = element_text(face = "bold", size = 11, vjust = 265),
                        legend.position = "top")
+
+jpg_ecpol(bolas, filename = "bolas.jpg", width = 20, height = 50, unit = "cm", dpi = 300)
 ```
 
+```{r}
+jpg_ecpol <- function(plot, filename = "", width = 18, height = 12, unit = "cm", dpi = 300) {
+  ggsave(
+    plot = plot,
+    filename = filename,
+    device = 'jpg',
+    width = width,
+    height = height,
+    unit = unit,
+    dpi = dpi
+  )
+}
+```
 
 
 
