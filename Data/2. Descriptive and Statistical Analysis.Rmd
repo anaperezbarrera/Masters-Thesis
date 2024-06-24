@@ -354,8 +354,6 @@ ggplot(merged_data_subset, aes(x = ICTadvanced, y = avg_change, color = ICTadvan
    theme(
     legend.position = "bottom", axis.text.x = element_text(size = 16), axis.text.y = element_text(size=16)) 
 
-jpg_ecpol(ict, filename = "ict.jpg", width = 34, height = 30, unit = "cm", dpi = 300)
-
 ```
 ### Sector employment and occupational characteristics
 
