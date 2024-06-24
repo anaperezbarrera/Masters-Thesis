@@ -286,7 +286,9 @@ online_ratio <- function(data) {
 } 
 ```
 
--   **FTPT**: Full- or part-time main job (self-defined) (EMPSTAT=1): 1 Full-time job, 2 Part-time job
+-   **FTPT**: Full- or part-time main job (self-defined) (EMPSTAT=1): 
+- 1 Full-time job
+- 2 Part-time job
 
 Create full-time/part-time ratio from 0 (part-time) to 1 (full-time).
 
@@ -367,7 +369,9 @@ extrahrs_ratio <- function(data) {
 }
 ```
 
--   **SHIFTWK**: Shift work in main job (1- Person usually does shift work. 3- Person never does)
+-   **SHIFTWK**: Shift work in main job 
+- 1. Person usually does shift work. 
+- 3. Person never does
 
 ```{r, eval=FALSE}
 shiftwk_ratio <- function(data) {
@@ -397,7 +401,7 @@ shiftwk_ratio <- function(data) {
 
 -   **SUNWK**: Sunday work in main job
 
-1- Person frequently. 2- Person sometimes. 3- Person never
+1- Person frequently / 2- Person sometimes / 3- Person never
 
 ```{r, eval=FALSE}
 shifts_ratio <- function(data) {
@@ -461,7 +465,7 @@ shifts_ratio <- function(data) {
 
 #### C. Proportion of employees by country, occupation and year.
 
-This function is used to calculate the ISCOPROP variable, that represents the proportion of employees represented in each occupation classification, out of the total nº of employees, per year.
+This function is used to calculate the ISCOPROP variable, that represents the proportion of employees represented in each occupation classification, out of the total nº of employees, per year. Each row in prop_data represents the proportion of employees in a specific occupation for a specific year. 
 
 ```{r, eval=FALSE}
 # Function to calculate proportions by occupation and year
@@ -485,6 +489,8 @@ add_iscoprop <- function(data) {
 }
 ```
 
+Then, the following function calculates the variation in proportions
+
 ```{r, eval=FALSE}
 total_employees <- function(data) {
 data <- data |> 
@@ -495,9 +501,6 @@ data <- data |>
 return(data)
 }
 ```
-
-
-Cada fila en prop_data representa la proporción de empleados en una ocupación específica para un año específico.
 
 **Let's apply all the functions**
 
