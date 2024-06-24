@@ -1,11 +1,11 @@
 # MUCSS Final Master's Thesis 
 ## Occupational Characteristics as Indicators of Employment in Europe 
 ### Author: Ana Pérez Barrera
-**Note that** this thesis was elaborated with confidential data from the EU Labor Force Survery (EU-LFS). Therefore, it is not possible to replicate the "1.Data Pre-processing" Rmd file. However, if you wish to replicate my work, you can find access to the pre-processed data and Rmd inside the **Data** folder. 
-Outside the **Data** folder you will find the follwoing documents: 
+**Note that** this thesis was elaborated with confidential data from the EU Labor Force Survery (EU-LFS). Therefore, it is not possible to replicate the "1.Data Pre-processing" Rmd file. However, if you wish to replicate my work, you can find access to the pre-processed data and Rmd inside the [Data](https://github.com/anaperezbarrera/Masters-Thesis/tree/4528da0ed79e5e732d5cd4cdb53ae1a7513f0e04/Data) folder. 
+Outside the **Data** folder you will find the following documents: 
 
-- "1.Data Pre-processing": This file contains the code for the pre-processing of EU-LFS micro-data and the "tasks" dataset. Here, the ratios at the occupational level are created to define occupations.
-- "tasks eu isco2d nace2d EU15": This is the original dataset from JRC [A comprehensive European database of tasks indices for socio-economic research](https://publications.jrc.ec.europa.eu/repository/handle/JRC124124), whose pre-processed version is provided inside the Data folder. 
+- "1.Data Pre-processing": This file contains the code for the pre-processing of EU-LFS micro-data (EU-15) and the "tasks" dataset. Here, the data is transformed from the individual to the occupational level. 
+- "tasks eu isco2d nace2d EU15": This is the original dataset from [A comprehensive European database of tasks indices for socio-economic research](https://publications.jrc.ec.europa.eu/repository/handle/JRC124124), whose pre-processed version is provided inside the **Data** folder. 
 
 
 ### ABSTRACT 
