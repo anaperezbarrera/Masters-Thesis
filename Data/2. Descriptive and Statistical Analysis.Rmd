@@ -80,7 +80,7 @@ iscoag <-isco2d |>
     mutate_all(round, digits = 4) 
 ```
 
-Create the main dataset (2012-2021). Merge both dataframes to include the other predictors we will use for our analysis EXPLAIN WHY
+Create the main dataset (2012-2021). Merge both data-frames to include the other predictors we will use for our analysis since they only apply to this reduced time-frame.  
 
 ```{r}
 # Subset and Merge (2012-2021)
@@ -401,6 +401,8 @@ new_palette <-c("#8B0000", "#FF5733", "#228B22", "#006400", "#004d00")
 
 ## 4. OCCUPATIONS AND EMPLOYMENT: METHODOLOGY 
 
+In this analysis, the target variable was obtained using the EMPSTAT variable from the EU-LFS, which captures the employment status of respondents aged between 15 and 89 years. For individuals outside this age range, the EMPSTAT variable is marked as ‘not applicable’. Then, it categorizes respondents as either employed or not employed. The former are our subject of interest, and the target variable is specified as follows:  the annual variation in the employment share of a specific sector (cambio). 
+
 ```{r}
 sum_emp_isco <-merged_data_subset %>%
   group_by(YEAR, sector) %>%
@@ -440,7 +442,7 @@ new_data <- merged_data_subset |>
 sapply(new_data, function(x) sum(is.na(x))*100/nrow(new_data))
 ```
 
-We have to make sure there are no NA'S in our data. For that purpose, and since the number of NA is very low, we are using the...imputations with the Random Forest algorithm from the mice function. 
+We have to make sure there are no NA'S in our data. For that purpose, and since the number of NA is very low, we are using the the Random Forest algorithm from the mice function. 
 
 ```{r}
 set.seed(123)
@@ -720,9 +722,6 @@ diff_rounded
 ```
 
 ```{r}
-library(lme4)
-library(caret)
-
 # Create folds
 set.seed(123)
 folds <- createFolds(training$cambio, k = 10)
